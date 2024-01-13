@@ -51,15 +51,51 @@ type Language struct {
 
 type Mutation struct {
 	gorm.Model
-	Key            string `gorm:"index:idx_key_projectID,unique" json:"key"`
-	ProjectID      uint   `gorm:"index:idx_key_projectID,unique" json:"projectID"`
-	Status         string `json:"status"`
-	MutationValues []MutationValue
+	Key            string          `gorm:"index:idx_key_projectID,unique" json:"key"`
+	ProjectID      uint            `gorm:"index:idx_key_projectID,unique" json:"projectId"`
+	Status         string          `json:"status"`
+	MutationValues []MutationValue `json:"values"`
 }
 
-func (m *Mutation) BeforeCreate(tx *gorm.DB) (err error) {
-	if m.Status == "" {
-		m.Status = "NEEDS_TRANSLATION"
+func (mutation *Mutation) ToSimpleMutation() SimpleMutation {
+	mutationValues := make([]SimpleMutationValue, len(mutation.MutationValues))
+	for i, v := range mutation.MutationValues {
+		mutationValues[i] = v.ToSimpleMutationValue()
+	}
+	return SimpleMutation{
+		ID:             mutation.ID,
+		Key:            mutation.Key,
+		Status:         mutation.Status,
+		MutationValues: mutationValues,
+	}
+}
+
+func (mutationValue *MutationValue) ToSimpleMutationValue() SimpleMutationValue {
+	return SimpleMutationValue{
+		ID:         mutationValue.ID,
+		Value:      mutationValue.Value,
+		Status:     mutationValue.Status,
+		LanguageID: mutationValue.LanguageId,
+	}
+}
+
+type SimpleMutation struct {
+	ID             uint                  `json:"id"`
+	Key            string                `json:"key"`
+	Status         string                `json:"status"`
+	MutationValues []SimpleMutationValue `json:"values"`
+}
+
+type SimpleMutationValue struct {
+	ID         uint   `json:"id"`
+	Value      string `json:"value"`
+	Status     string `json:"status"`
+	LanguageID uint   `json:"languageId"`
+}
+
+func (mutation *Mutation) BeforeCreate(tx *gorm.DB) (err error) {
+	if mutation.Status == "" {
+		mutation.Status = "NEEDS_TRANSLATION"
 	}
 	return
 }
@@ -72,9 +108,9 @@ type MutationValue struct {
 	Status     string `json:"status"`
 }
 
-func (mv *MutationValue) BeforeCreate(tx *gorm.DB) (err error) {
-	if mv.Status == "" {
-		mv.Status = "NEEDS_TRANSLATION"
+func (mutationValue *MutationValue) BeforeCreate(tx *gorm.DB) (err error) {
+	if mutationValue.Status == "" {
+		mutationValue.Status = "NEEDS_TRANSLATION"
 	}
 	return
 }
@@ -90,7 +126,10 @@ func init() {
 
 	fmt.Println("Connecting to DB")
 	var err error
-	db, err = gorm.Open(postgres.Open(connStr), &gorm.Config{})
+	db, err = gorm.Open(postgres.Open(connStr), &gorm.Config{
+		SkipDefaultTransaction: true,
+		PrepareStmt:            true,
+	})
 	if err != nil {
 		panic("Failed to connect database")
 	}

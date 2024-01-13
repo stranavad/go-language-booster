@@ -37,19 +37,14 @@ func GetLanguagesByProjectId(c *gin.Context) {
 	if err != nil {
 		panic("Project ID is not number serializable")
 	}
-	var languages []db.Language
+	var languages []db.SimpleLanguage
 
-	err = conn.Where("project_id = ?", projectId).Find(&languages).Error
+	err = conn.Model(&db.Language{}).Where("project_id = ?", projectId).Find(&languages).Error
 	if err != nil {
 		c.JSON(500, "Internal server error")
 	}
 
-	simpleLanguages := make([]db.SimpleLanguage, len(languages))
-	for i, v := range languages {
-		simpleLanguages[i] = v.ToSimpleLanguage()
-	}
-	
-	c.JSON(200, simpleLanguages)
+	c.JSON(200, languages)
 
 }
 

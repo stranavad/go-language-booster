@@ -49,13 +49,8 @@ func UpdateProject(c *gin.Context) {
 }
 
 func ListProjects(c *gin.Context) {
-	var projects []db.Project
-	conn.Find(&projects)
+	var projects []db.SimpleProject
+	conn.Model(&db.Project{}).Find(&projects)
 
-	projectsResponse := make([]db.SimpleProject, len(projects))
-	for i, v := range projects {
-		projectsResponse[i] = v.ToSimpleProject()
-	}
-
-	c.JSON(200, projectsResponse)
+	c.JSON(200, projects)
 }
