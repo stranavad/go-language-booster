@@ -2,6 +2,7 @@ package projects
 
 import (
 	"github.com/gin-gonic/gin"
+	"languageboostergo/auth"
 	"languageboostergo/db"
 	"net/http"
 	"strconv"
@@ -10,7 +11,8 @@ import (
 var conn = db.GetDb()
 
 type CreateProjectDto struct {
-	Name string `json:"name" binding:"required"`
+	Name    string `json:"name" binding:"required"`
+	SpaceId uint   `json:"spaceId"`
 }
 
 func CreateProject(c *gin.Context) {
@@ -20,8 +22,25 @@ func CreateProject(c *gin.Context) {
 		return
 	}
 
+	var foundSpace db.Space
+	conn.Preload("Users").First(&foundSpace, request.SpaceId)
+	userId := c.MustGet("userId").(uint)
+	userInSpace := false
+	for _, user := range foundSpace.Users {
+		if user.ID == userId {
+			userInSpace = true
+			break
+		}
+	}
+
+	if !userInSpace {
+		c.JSON(403, "You are not in this space stupid")
+		return
+	}
+
 	newProject := db.Project{
-		Name: request.Name,
+		Name:    request.Name,
+		SpaceID: foundSpace.ID,
 	}
 
 	conn.Create(&newProject)
@@ -30,7 +49,7 @@ func CreateProject(c *gin.Context) {
 }
 
 func UpdateProject(c *gin.Context) {
-	projectId, err := strconv.ParseUint(c.Param("projectId"), 10, 16)
+	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 16)
 	if err != nil {
 		panic("Project ID is not number serializable")
 	}
@@ -41,16 +60,47 @@ func UpdateProject(c *gin.Context) {
 		return
 	}
 
+	userId := c.MustGet("userId").(uint)
+	projectId := uint(projectIdParam)
+
+	if !auth.IsUserInProject(userId, projectId) {
+		c.JSON(403, "You cannot update this project")
+		return
+	}
+
 	var updateData db.Project
-	updateData.ID = uint(projectId)
-	updateData.Name = request.Name
+	conn.First(&updateData, projectId)
+
+	if request.Name != "" {
+		updateData.Name = request.Name
+	}
+
 	conn.Save(&updateData)
 	c.JSON(200, updateData.ToSimpleProject())
 }
 
 func ListProjects(c *gin.Context) {
-	var projects []db.SimpleProject
-	conn.Model(&db.Project{}).Find(&projects)
+	spaceId, err := strconv.ParseUint(c.Param("spaceId"), 10, 16)
+	if err != nil {
+		panic("Space ID is not number serializable")
+	}
+	var foundSpace db.Space
+	conn.Preload("Users").Preload("Projects").First(&foundSpace, uint(spaceId))
 
-	c.JSON(200, projects)
+	// Check user relevance
+	userId := c.MustGet("userId").(uint)
+	userInSpace := false
+	for _, user := range foundSpace.Users {
+		if user.ID == userId {
+			userInSpace = true
+			break
+		}
+	}
+
+	if !userInSpace {
+		c.JSON(403, "You are not in this space")
+		return
+	}
+
+	c.JSON(200, foundSpace.ToSimpleSpace().Projects)
 }

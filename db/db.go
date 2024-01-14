@@ -5,13 +5,13 @@ import (
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"log"
 	"os"
 )
 
 type Project struct {
 	gorm.Model
 	Name      string `json:"name" binding:"required"`
+	SpaceID   uint   `json:"spaceId"`
 	Languages []Language
 	Mutations []Mutation
 }
@@ -21,6 +21,61 @@ func (project *Project) ToSimpleProject() SimpleProject {
 		ID:   project.ID,
 		Name: project.Name,
 	}
+}
+
+func (user *User) ToSimpleUser() SimpleUser {
+	return SimpleUser{
+		ID:       user.ID,
+		Name:     user.Name,
+		Username: user.Username,
+	}
+}
+
+type SimpleUser struct {
+	ID       uint   `json:"id"`
+	Name     string `json:"name"`
+	Username string `json:"username"`
+}
+
+type User struct {
+	gorm.Model
+	Name     string `json:"name"`
+	Username string `json:"username" gorm:"uniqueIndex"`
+	Password string
+	Spaces   []Space `gorm:"many2many:user_spaces;"`
+}
+
+type Space struct {
+	gorm.Model
+	Name     string `json:"name"`
+	Projects []Project
+	Users    []User `gorm:"many2many:user_spaces;"`
+}
+
+func (space *Space) ToSimpleSpace() SimpleSpace {
+	users := make([]SimpleUser, len(space.Users))
+	for i, v := range space.Users {
+		users[i] = v.ToSimpleUser()
+	}
+
+	projects := make([]SimpleProject, len(space.Projects))
+	for i, v := range space.Projects {
+		projects[i] = v.ToSimpleProject()
+	}
+
+	return SimpleSpace{
+		ID:       space.ID,
+		Name:     space.Name,
+		Users:    users,
+		Projects: projects,
+	}
+}
+
+type SimpleSpace struct {
+	ID       uint            `json:"id"`
+	Name     string          `json:"name"`
+	Users    []SimpleUser    `json:"users"`
+	Projects []SimpleProject `json:"projects"`
 }
 
 type SimpleProject struct {
@@ -120,7 +175,7 @@ var db *gorm.DB
 func init() {
 	envErr := godotenv.Load()
 	if envErr != nil {
-		log.Fatal("Error loading .env file")
+		fmt.Println("Error loading .env file")
 	}
 	connStr := os.Getenv("DATABASE_URL")
 
@@ -134,7 +189,7 @@ func init() {
 		panic("Failed to connect database")
 	}
 
-	err = db.AutoMigrate(&Project{}, &Language{}, &Mutation{}, &MutationValue{})
+	err = db.AutoMigrate(&Space{}, &Project{}, &Language{}, &Mutation{}, &MutationValue{}, &User{})
 	if err != nil {
 		panic("Failed to migrate database")
 	}

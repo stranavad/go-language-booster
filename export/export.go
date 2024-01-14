@@ -2,6 +2,7 @@ package export
 
 import (
 	"github.com/gin-gonic/gin"
+	"languageboostergo/auth"
 	"languageboostergo/db"
 	"net/http"
 	"strings"
@@ -52,7 +53,15 @@ func ByProjectIdAndLanguageId(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	userId := c.MustGet("userId").(uint)
+
+	if !auth.IsUserInProject(userId, request.ProjectID) {
+		c.JSON(403, "You are not in this project")
+		return
+	}
+
 	var mutations []db.Mutation
-	conn.Preload("MutationValues", "language_id = ?", request.LanguageID).Find(&mutations, "mutations.project_id = ?", request.ProjectID)
+	conn.Preload("MutationValues", "language_id = ?", request.LanguageID).Order("key asc").Find(&mutations, "mutations.project_id = ?", request.ProjectID)
 	c.JSON(200, toExportKey(mutations))
 }

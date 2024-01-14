@@ -2,6 +2,7 @@ package mutations
 
 import (
 	"github.com/gin-gonic/gin"
+	"languageboostergo/auth"
 	"languageboostergo/db"
 	"net/http"
 	"strconv"
@@ -10,14 +11,14 @@ import (
 var conn = db.GetDb()
 
 type CreateMutationDto struct {
-	ProjectID uint                     `json:"projectId" binding:"required"`
+	ProjectId uint                     `json:"projectId" binding:"required"`
 	Key       string                   `json:"key" binding:"required"`
 	Status    string                   `json:"status" binding:"required"`
 	Values    []CreateMutationDtoValue `json:"values" binding:"required"`
 }
 
 type CreateMutationDtoValue struct {
-	LanguageID uint   `json:"languageId" binding:"required"`
+	LanguageId uint   `json:"languageId" binding:"required"`
 	Value      string `json:"value" binding:"required"`
 	Status     string `json:"status" binding:"required"`
 }
@@ -32,8 +33,40 @@ type UpdateMutationValueDto struct {
 	Status string `json:"status"`
 }
 
+type CreateMutationValueDto struct {
+	Value      string `json:"value"`
+	MutationId uint   `json:"mutationId"`
+	LanguageId uint   `json:"languageId"`
+}
+
+func CreateMutationValue(c *gin.Context) {
+	var request CreateMutationValueDto
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var foundMutation db.Mutation
+	conn.First(&foundMutation, request.MutationId)
+
+	userId := c.MustGet("userId").(uint)
+
+	if !auth.IsUserInProject(userId, foundMutation.ProjectID) {
+		c.JSON(403, "You are not in this project")
+		return
+	}
+
+	var newMutationValue db.MutationValue
+	newMutationValue.Value = request.Value
+	newMutationValue.LanguageId = request.LanguageId
+	newMutationValue.MutationId = request.MutationId
+
+	conn.Create(&newMutationValue)
+	c.JSON(200, newMutationValue.ToSimpleMutationValue())
+}
+
 func UpdateMutation(c *gin.Context) {
-	mutationId, err := strconv.ParseUint(c.Param("mutationId"), 10, 16)
+	mutationIdParam, err := strconv.ParseUint(c.Param("mutationId"), 10, 16)
 	if err != nil {
 		panic("Mutation ID is not number serializable")
 	}
@@ -43,9 +76,17 @@ func UpdateMutation(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	mutationId := uint(mutationIdParam)
 	var updatedMutation db.Mutation
-	updatedMutation.ID = uint(mutationId)
-	conn.First(&updatedMutation)
+	conn.First(&updatedMutation, mutationId)
+
+	userId := c.MustGet("userId").(uint)
+
+	if !auth.IsUserInProject(userId, updatedMutation.ProjectID) {
+		c.JSON(403, "You are not in this project")
+		return
+	}
 
 	// Check if key already exists or not
 	var mutations []db.Mutation
@@ -68,13 +109,69 @@ func UpdateMutation(c *gin.Context) {
 	c.JSON(200, updatedMutation.ToSimpleMutation())
 }
 
+func GetById(c *gin.Context) {
+	mutationIdParam, err := strconv.ParseUint(c.Param("mutationId"), 10, 16)
+	if err != nil {
+		panic("Mutation ID is not number serializable")
+	}
+
+	mutationId := uint(mutationIdParam)
+	var mutation db.Mutation
+	dbErr := conn.Preload("MutationValues").First(&mutation, mutationId).Error
+
+	userId := c.MustGet("userId").(uint)
+
+	if !auth.IsUserInProject(userId, mutation.ProjectID) {
+		c.JSON(403, "You are not in this project")
+		return
+	}
+
+	if dbErr != nil {
+		c.JSON(200, nil)
+		c.Abort()
+		return
+	}
+
+	c.JSON(200, mutation.ToSimpleMutation())
+}
+
+func DeleteById(c *gin.Context) {
+	mutationIdParam, err := strconv.ParseUint(c.Param("mutationId"), 10, 16)
+	if err != nil {
+		panic("Mutation ID is not number serializable")
+	}
+
+	mutationId := uint(mutationIdParam)
+	var mutation db.Mutation
+	conn.First(&mutation, mutationId)
+
+	userId := c.MustGet("userId").(uint)
+	if !auth.IsUserInProject(userId, mutation.ProjectID) {
+		c.JSON(403, "You are not in this project")
+		return
+	}
+
+	conn.Delete(&mutation)
+	c.JSON(200, mutation)
+}
+
 func ListByProject(c *gin.Context) {
-	projectId, err := strconv.ParseUint(c.Param("projectId"), 10, 16)
+	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 16)
 	if err != nil {
 		panic("Project ID is not number serializable")
 	}
+
+	projectId := uint(projectIdParam)
+
+	userId := c.MustGet("userId").(uint)
+
+	if !auth.IsUserInProject(userId, projectId) {
+		c.JSON(403, "You are not in this project")
+		return
+	}
+
 	var mutations []db.Mutation
-	conn.Preload("MutationValues").Find(&mutations, "mutations.project_id = ?", uint(projectId))
+	conn.Preload("MutationValues").Order("key asc").Find(&mutations, "mutations.project_id = ?", projectId)
 	simpleMutations := make([]db.SimpleMutation, len(mutations))
 	for i, v := range mutations {
 		simpleMutations[i] = v.ToSimpleMutation()
@@ -83,7 +180,7 @@ func ListByProject(c *gin.Context) {
 }
 
 func UpdateMutationValue(c *gin.Context) {
-	mutationValueId, err := strconv.ParseUint(c.Param("mutationValueId"), 10, 16)
+	mutationValueIdParam, err := strconv.ParseUint(c.Param("mutationValueId"), 10, 16)
 	if err != nil {
 		panic("Mutation Value ID is not number serializable")
 	}
@@ -93,9 +190,20 @@ func UpdateMutationValue(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	mutationValueId := uint(mutationValueIdParam)
+
 	var updatedMutationValue db.MutationValue
-	updatedMutationValue.ID = uint(mutationValueId)
-	conn.First(&updatedMutationValue)
+	conn.First(&updatedMutationValue, mutationValueId)
+
+	var foundMutation db.Mutation
+	conn.First(&foundMutation, updatedMutationValue.MutationId)
+
+	userId := c.MustGet("userId").(uint)
+
+	if !auth.IsUserInProject(userId, foundMutation.ProjectID) {
+		c.JSON(403, "You are not in this project")
+		return
+	}
 
 	if request.Value != "" {
 		updatedMutationValue.Value = request.Value
@@ -117,8 +225,14 @@ func CreateMutation(c *gin.Context) {
 		return
 	}
 
+	userId := c.MustGet("userId").(uint)
+	if !auth.IsUserInProject(userId, data.ProjectId) {
+		c.JSON(403, "You are not in this project")
+		return
+	}
+
 	var mutations []db.Mutation
-	conn.Where("project_id = ? AND key = ?", data.ProjectID, data.Key).Find(&mutations).Limit(1)
+	conn.Where("project_id = ? AND key = ?", data.ProjectId, data.Key).Find(&mutations).Limit(1)
 	if len(mutations) > 0 {
 		c.JSON(405, gin.H{"message": "Mutation with this key already exists"})
 		c.Abort()
@@ -128,7 +242,7 @@ func CreateMutation(c *gin.Context) {
 	// Mutation does not exist yet
 	// Get languages by project
 	var languages []db.Language
-	conn.Where("project_id = ?", data.ProjectID).Find(&languages)
+	conn.Where("project_id = ?", data.ProjectId).Find(&languages)
 
 	// Map languages to sent values
 	mutationValues := make([]db.MutationValue, len(languages))
@@ -136,8 +250,9 @@ func CreateMutation(c *gin.Context) {
 		// Find language in values
 		var foundValue *CreateMutationDtoValue
 		for _, value := range data.Values {
-			if value.LanguageID == language.ID {
+			if value.LanguageId == language.ID {
 				foundValue = &value
+				break
 			}
 		}
 
@@ -157,7 +272,7 @@ func CreateMutation(c *gin.Context) {
 	}
 
 	mutation := db.Mutation{
-		ProjectID:      data.ProjectID,
+		ProjectID:      data.ProjectId,
 		Status:         data.Status,
 		Key:            data.Key,
 		MutationValues: mutationValues,

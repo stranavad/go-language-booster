@@ -2,6 +2,7 @@ package languages
 
 import (
 	"github.com/gin-gonic/gin"
+	"languageboostergo/auth"
 	"languageboostergo/db"
 	"net/http"
 	"strconv"
@@ -25,6 +26,13 @@ func CreateLanguage(c *gin.Context) {
 		return
 	}
 
+	userId := c.MustGet("userId").(uint)
+
+	if !auth.IsUserInProject(userId, data.ProjectId) {
+		c.JSON(403, "You are not in this project")
+		return
+	}
+
 	var newLanguage db.Language
 	newLanguage.ProjectID = data.ProjectId
 	newLanguage.Name = data.Name
@@ -33,10 +41,19 @@ func CreateLanguage(c *gin.Context) {
 }
 
 func GetLanguagesByProjectId(c *gin.Context) {
-	projectId, err := strconv.ParseUint(c.Param("projectId"), 10, 16)
+	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 16)
 	if err != nil {
 		panic("Project ID is not number serializable")
 	}
+
+	projectId := uint(projectIdParam)
+	userId := c.MustGet("userId").(uint)
+
+	if !auth.IsUserInProject(userId, projectId) {
+		c.JSON(403, "You are not in this project")
+		return
+	}
+
 	var languages []db.SimpleLanguage
 
 	err = conn.Model(&db.Language{}).Where("project_id = ?", projectId).Find(&languages).Error
@@ -61,8 +78,19 @@ func UpdateLanguage(c *gin.Context) {
 	}
 
 	var updatedLanguage db.Language
-	updatedLanguage.ID = uint(languageId)
-	updatedLanguage.Name = request.Name
+	conn.First(&updatedLanguage, uint(languageId))
+
+	userId := c.MustGet("userId").(uint)
+
+	if !auth.IsUserInProject(userId, updatedLanguage.ProjectID) {
+		c.JSON(403, "You are not in this project")
+		return
+	}
+
+	if request.Name != "" {
+		updatedLanguage.Name = request.Name
+	}
+
 	conn.Save(&updatedLanguage)
 	c.JSON(200, updatedLanguage.ToSimpleLanguage())
 }
