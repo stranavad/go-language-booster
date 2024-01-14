@@ -18,8 +18,9 @@ type Project struct {
 
 func (project *Project) ToSimpleProject() SimpleProject {
 	return SimpleProject{
-		ID:   project.ID,
-		Name: project.Name,
+		ID:      project.ID,
+		Name:    project.Name,
+		SpaceId: project.SpaceID,
 	}
 }
 
@@ -79,8 +80,9 @@ type SimpleSpace struct {
 }
 
 type SimpleProject struct {
-	ID   uint   `json:"id"`
-	Name string `json:"name"`
+	ID      uint   `json:"id"`
+	Name    string `json:"name"`
+	SpaceId uint   `json:"spaceId"`
 }
 
 type SimpleLanguage struct {

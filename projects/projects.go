@@ -48,6 +48,25 @@ func CreateProject(c *gin.Context) {
 	c.JSON(200, newProject.ToSimpleProject())
 }
 
+func GetById(c *gin.Context) {
+	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 16)
+	if err != nil {
+		panic("Project ID is not number serializable")
+	}
+
+	userId := c.MustGet("userId").(uint)
+	projectId := uint(projectIdParam)
+
+	if !auth.IsUserInProject(userId, projectId) {
+		c.JSON(403, "You cannot update this project")
+		return
+	}
+
+	var foundProject db.Project
+	conn.First(&foundProject, projectId)
+	c.JSON(200, foundProject.ToSimpleProject())
+}
+
 func UpdateProject(c *gin.Context) {
 	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 16)
 	if err != nil {

@@ -53,6 +53,7 @@ func main() {
 
 	projectsGroup := r.Group("/projects")
 	projectsGroup.Use(AuthMiddleware())
+	projectsGroup.GET("by-id/:projectId", projects.GetById)
 	projectsGroup.GET(":spaceId", projects.ListProjects)
 	projectsGroup.POST("", projects.CreateProject)
 	projectsGroup.PUT(":projectId", projects.UpdateProject)
