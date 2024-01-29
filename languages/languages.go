@@ -41,7 +41,7 @@ func CreateLanguage(c *gin.Context) {
 }
 
 func GetLanguagesByProjectId(c *gin.Context) {
-	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 16)
+	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 32)
 	if err != nil {
 		panic("Project ID is not number serializable")
 	}
@@ -66,7 +66,7 @@ func GetLanguagesByProjectId(c *gin.Context) {
 }
 
 func UpdateLanguage(c *gin.Context) {
-	languageId, err := strconv.ParseUint(c.Param("languageId"), 10, 16)
+	languageId, err := strconv.ParseUint(c.Param("languageId"), 10, 32)
 	if err != nil {
 		panic("Language ID is not number serializable")
 	}

@@ -38,7 +38,7 @@ type UpdateSpaceDto struct {
 }
 
 func GetById(c *gin.Context) {
-	spaceIdParam, err := strconv.ParseUint(c.Param("spaceId"), 10, 16)
+	spaceIdParam, err := strconv.ParseUint(c.Param("spaceId"), 10, 32)
 	if err != nil {
 		panic("Space ID is not number serializable")
 	}
@@ -65,7 +65,7 @@ func GetById(c *gin.Context) {
 }
 
 func UpdateSpace(c *gin.Context) {
-	spaceIdParam, err := strconv.ParseUint(c.Param("spaceId"), 10, 16)
+	spaceIdParam, err := strconv.ParseUint(c.Param("spaceId"), 10, 32)
 	if err != nil {
 		panic("Space ID is not number serializable")
 	}
@@ -100,7 +100,7 @@ func UpdateSpace(c *gin.Context) {
 }
 
 func LeaveSpace(c *gin.Context) {
-	spaceIdParam, err := strconv.ParseUint(c.Param("spaceId"), 10, 16)
+	spaceIdParam, err := strconv.ParseUint(c.Param("spaceId"), 10, 32)
 	if err != nil {
 		panic("Space ID is not number serializable")
 	}
@@ -137,7 +137,7 @@ func ListUserSpaces(c *gin.Context) {
 }
 
 func AddUserToSpace(c *gin.Context) {
-	spaceId, err := strconv.ParseUint(c.Param("spaceId"), 10, 16)
+	spaceId, err := strconv.ParseUint(c.Param("spaceId"), 10, 32)
 	if err != nil {
 		panic("Space ID is not number serializable")
 	}

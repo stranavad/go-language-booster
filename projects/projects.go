@@ -49,7 +49,7 @@ func CreateProject(c *gin.Context) {
 }
 
 func GetById(c *gin.Context) {
-	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 16)
+	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 32)
 	if err != nil {
 		panic("Project ID is not number serializable")
 	}
@@ -68,7 +68,7 @@ func GetById(c *gin.Context) {
 }
 
 func UpdateProject(c *gin.Context) {
-	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 16)
+	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 32)
 	if err != nil {
 		panic("Project ID is not number serializable")
 	}
@@ -99,7 +99,7 @@ func UpdateProject(c *gin.Context) {
 }
 
 func ListProjects(c *gin.Context) {
-	spaceId, err := strconv.ParseUint(c.Param("spaceId"), 10, 16)
+	spaceId, err := strconv.ParseUint(c.Param("spaceId"), 10, 32)
 	if err != nil {
 		panic("Space ID is not number serializable")
 	}

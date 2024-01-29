@@ -66,7 +66,7 @@ func CreateMutationValue(c *gin.Context) {
 }
 
 func UpdateMutation(c *gin.Context) {
-	mutationIdParam, err := strconv.ParseUint(c.Param("mutationId"), 10, 16)
+	mutationIdParam, err := strconv.ParseUint(c.Param("mutationId"), 10, 32)
 	if err != nil {
 		panic("Mutation ID is not number serializable")
 	}
@@ -110,7 +110,7 @@ func UpdateMutation(c *gin.Context) {
 }
 
 func GetById(c *gin.Context) {
-	mutationIdParam, err := strconv.ParseUint(c.Param("mutationId"), 10, 16)
+	mutationIdParam, err := strconv.ParseUint(c.Param("mutationId"), 10, 32)
 	if err != nil {
 		panic("Mutation ID is not number serializable")
 	}
@@ -136,7 +136,7 @@ func GetById(c *gin.Context) {
 }
 
 func DeleteById(c *gin.Context) {
-	mutationIdParam, err := strconv.ParseUint(c.Param("mutationId"), 10, 16)
+	mutationIdParam, err := strconv.ParseUint(c.Param("mutationId"), 10, 32)
 	if err != nil {
 		panic("Mutation ID is not number serializable")
 	}
@@ -156,7 +156,7 @@ func DeleteById(c *gin.Context) {
 }
 
 func ListByProject(c *gin.Context) {
-	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 16)
+	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 32)
 	if err != nil {
 		panic("Project ID is not number serializable")
 	}
@@ -180,7 +180,7 @@ func ListByProject(c *gin.Context) {
 }
 
 func UpdateMutationValue(c *gin.Context) {
-	mutationValueIdParam, err := strconv.ParseUint(c.Param("mutationValueId"), 10, 16)
+	mutationValueIdParam, err := strconv.ParseUint(c.Param("mutationValueId"), 10, 32)
 	if err != nil {
 		panic("Mutation Value ID is not number serializable")
 	}
