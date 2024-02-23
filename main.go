@@ -66,6 +66,7 @@ func main() {
 
 	mutationsGroup := r.Group("/mutations")
 	mutationsGroup.Use(AuthMiddleware())
+	mutationsGroup.POST("/project/:projectId/search", mutations.SearchByProject)
 	mutationsGroup.GET(":mutationId", mutations.GetById)
 	mutationsGroup.GET("/project/:projectId", mutations.ListByProject)
 	mutationsGroup.POST("", mutations.CreateMutation)
@@ -77,5 +78,9 @@ func main() {
 	exportsGroup := r.Group("/export")
 	exportsGroup.Use(AuthMiddleware())
 	exportsGroup.POST("", export.ByProjectIdAndLanguageId)
-	r.Run()
+	err := r.Run()
+
+	if err != nil {
+		panic("Cannot run application, panic from main.go")
+	}
 }

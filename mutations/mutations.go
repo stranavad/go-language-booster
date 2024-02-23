@@ -39,6 +39,17 @@ type CreateMutationValueDto struct {
 	LanguageId uint   `json:"languageId"`
 }
 
+type SearchMutationLanguageDto struct {
+	LanguageId uint   `json:"languageId" binding:"required"`
+	Search     string `json:"search" binding:"required"`
+}
+
+type SearchMutationsDto struct {
+	Key       string                      `json:"key"`
+	Status    string                      `json:"status"`
+	Languages []SearchMutationLanguageDto `json:"languages"`
+}
+
 func CreateMutationValue(c *gin.Context) {
 	var request CreateMutationValueDto
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -101,7 +112,7 @@ func UpdateMutation(c *gin.Context) {
 		updatedMutation.Key = request.Key
 	}
 
-	if request.Key != "" {
+	if request.Status != "" {
 		updatedMutation.Status = request.Status
 	}
 
@@ -153,6 +164,67 @@ func DeleteById(c *gin.Context) {
 
 	conn.Delete(&mutation)
 	c.JSON(200, mutation)
+}
+
+func SearchByProject(c *gin.Context) {
+	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 32)
+	if err != nil {
+		c.JSON(405, "Project ID is invalid")
+		return
+	}
+
+	projectId := uint(projectIdParam)
+
+	userId := c.MustGet("userId").(uint)
+
+	if !auth.IsUserInProject(userId, projectId) {
+		c.JSON(403, "You are not in this project")
+		return
+	}
+
+	var request SearchMutationsDto
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	mvDb := conn
+	for _, lang := range request.Languages {
+		mvDb = mvDb.Or("language_id = ? AND value LIKE ?", lang.LanguageId, "%"+lang.Search+"%")
+	}
+
+	var mutationValues []db.MutationValue
+	mvDb.Select("mutation_id").Find(&mutationValues)
+
+	var mutationIds []uint
+	uniqueIds := make(map[uint]bool)
+
+	for _, value := range mutationValues {
+		if _, exists := uniqueIds[value.MutationId]; !exists {
+			mutationIds = append(mutationIds, value.MutationId)
+			uniqueIds[value.MutationId] = true
+		}
+	}
+
+	var mutations []db.Mutation
+	resDb := conn.Preload("MutationValues").Order("key asc").Where(mutationIds).Where("project_id = ?", projectId)
+
+	if request.Key != "" {
+		resDb.Where("key like ?", "%"+request.Key+"%")
+	}
+
+	if request.Status != "" {
+		resDb.Where("status = ?", request.Status)
+	}
+
+	resDb.Find(&mutations)
+
+	simpleMutations := make([]db.SimpleMutation, len(mutations))
+	for i, v := range mutations {
+		simpleMutations[i] = v.ToSimpleMutation()
+	}
+
+	c.JSON(200, mutations)
 }
 
 func ListByProject(c *gin.Context) {
