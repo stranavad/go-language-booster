@@ -206,6 +206,12 @@ func SearchByProject(c *gin.Context) {
 		}
 	}
 
+	if len(mutationIds) == 0 {
+		var res []db.SimpleMutation
+		c.JSON(200, res)
+		return
+	}
+
 	var mutations []db.Mutation
 	resDb := conn.Preload("MutationValues").Order("key asc").Where(mutationIds).Where("project_id = ?", projectId)
 
@@ -217,14 +223,14 @@ func SearchByProject(c *gin.Context) {
 		resDb.Where("status = ?", request.Status)
 	}
 
-	resDb.Find(&mutations)
+	resDb.Limit(100).Find(&mutations)
 
 	simpleMutations := make([]db.SimpleMutation, len(mutations))
 	for i, v := range mutations {
 		simpleMutations[i] = v.ToSimpleMutation()
 	}
 
-	c.JSON(200, mutations)
+	c.JSON(200, simpleMutations)
 }
 
 func ListByProject(c *gin.Context) {
@@ -243,7 +249,7 @@ func ListByProject(c *gin.Context) {
 	}
 
 	var mutations []db.Mutation
-	conn.Preload("MutationValues").Order("key asc").Find(&mutations, "mutations.project_id = ?", projectId)
+	conn.Preload("MutationValues").Order("key asc").Limit(100).Find(&mutations, "mutations.project_id = ?", projectId)
 	simpleMutations := make([]db.SimpleMutation, len(mutations))
 	for i, v := range mutations {
 		simpleMutations[i] = v.ToSimpleMutation()
