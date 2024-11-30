@@ -7,11 +7,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"languageboostergo/db"
 	"net/http"
+	"os"
 	"time"
 )
 
 var conn = db.GetDb()
-var secret = "secret"
+var secret = os.Getenv("JWT_SECRET")
 
 func hashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 10)
@@ -28,7 +29,7 @@ func CreateToken(userId uint) (string, error) {
 	atClaims := jwt.MapClaims{}
 	atClaims["authorized"] = true
 	atClaims["user_id"] = userId
-	atClaims["exp"] = time.Now().Add(time.Hour * 24 * 30 * 365).Unix() // Token will expire after 15 minutes
+	atClaims["exp"] = time.Now().Add(time.Hour * 24 * 30 * 365).Unix() // Token will expire after 1 year
 	at := jwt.NewWithClaims(jwt.SigningMethodHS256, atClaims)
 	token, err := at.SignedString([]byte(secret)) // Replace "your-secret" with your own secret
 	if err != nil {
