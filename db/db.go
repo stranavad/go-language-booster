@@ -15,24 +15,33 @@ type Project struct {
 	SpaceID   uint   `json:"spaceId"`
 	Languages []Language
 	Mutations []Mutation
-	Versions []Version
+	Versions  []Version
 }
 
 type Version struct {
 	gorm.Model
-	Name string `json:"name" binding:"required"`
-	ProjectID uint
-	Project Project
+	Name           string `json:"name" binding:"required"`
+	ProjectID      uint
+	Project        Project
+	MutationValues []MutationValue `gorm:"constraints:OnDelete:CASCADE;"`
 }
 
 type Mutation struct {
 	gorm.Model
 	Key            string          `json:"key"`
 	ProjectID      uint            `json:"projectId"`
-	VersionID 		*uint 			`json:"versionId"`
-	Version  		*Version 		`json:"version"`
+	VersionID      *uint           `json:"versionId"`
+	Version        *Version        `json:"version"`
 	Status         string          `json:"status"`
-	MutationValues []MutationValue `json:"values"`
+	MutationValues []MutationValue `json:"values" gorm:"constraint:OnDelete:CASCADE;"`
+}
+
+type MutationValue struct {
+	gorm.Model
+	Value      string `json:"value"`
+	MutationId uint   `json:"mutationId"`
+	LanguageId uint   `json:"languageId"`
+	Status     string `json:"status"`
 }
 
 func (project *Project) ToSimpleProject() SimpleProject {
@@ -125,7 +134,6 @@ type Language struct {
 	MutationValues []MutationValue
 }
 
-
 func (mutation *Mutation) ToSimpleMutation() SimpleMutation {
 	mutationValues := make([]SimpleMutationValue, len(mutation.MutationValues))
 	for i, v := range mutation.MutationValues {
@@ -162,22 +170,14 @@ type SimpleMutationValue struct {
 	LanguageID uint   `json:"languageId"`
 }
 
-func (mutation *Mutation) BeforeCreate(tx *gorm.DB) (err error) {
+func (mutation *Mutation) BeforeCreate(*gorm.DB) (err error) {
 	if mutation.Status == "" {
 		mutation.Status = "NEEDS_TRANSLATION"
 	}
 	return
 }
 
-type MutationValue struct {
-	gorm.Model
-	Value      string `json:"value"`
-	MutationId uint   `json:"mutationId"`
-	LanguageId uint   `json:"languageId"`
-	Status     string `json:"status"`
-}
-
-func (mutationValue *MutationValue) BeforeCreate(tx *gorm.DB) (err error) {
+func (mutationValue *MutationValue) BeforeCreate(*gorm.DB) (err error) {
 	if mutationValue.Status == "" {
 		mutationValue.Status = "NEEDS_TRANSLATION"
 	}

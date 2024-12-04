@@ -1,6 +1,8 @@
 package mutations
 
 import (
+	"errors"
+	"gorm.io/gorm"
 	"languageboostergo/auth"
 	"languageboostergo/db"
 	"net/http"
@@ -240,10 +242,22 @@ func SearchByProject(c *gin.Context) {
 func ListByProject(c *gin.Context) {
 	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 32)
 	if err != nil {
-		panic("Project ID is not number serializable")
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Project ID is invalid"})
 	}
 
 	projectId := uint(projectIdParam)
+
+	versionQuery := c.DefaultQuery("version", "latest")
+
+	// IF version is specified, check if it exists
+	var foundVersion db.Version
+	if versionQuery != "latest" {
+		err = conn.Where("project_id = ?", projectId).Where("name = ?", versionQuery).First(&foundVersion).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Version with this name was not found"})
+			return
+		}
+	}
 
 	userId := c.MustGet("userId").(uint)
 
@@ -252,8 +266,17 @@ func ListByProject(c *gin.Context) {
 		return
 	}
 
+	// Create "query builder"
+	qb := conn.Preload("MutationValues").Order("key asc").Limit(100).Where("mutations.project_id = ?", projectId)
+	if versionQuery == "latest" {
+		qb = qb.Where("mutations.version_id IS NULL")
+	} else {
+		qb = qb.Where("mutations.version_id = ?", foundVersion.ID)
+	}
+
 	var mutations []db.Mutation
-	conn.Preload("MutationValues").Order("key asc").Limit(100).Find(&mutations, "mutations.project_id = ?", projectId)
+	qb.Find(&mutations)
+
 	simpleMutations := make([]db.SimpleMutation, len(mutations))
 	for i, v := range mutations {
 		simpleMutations[i] = v.ToSimpleMutation()

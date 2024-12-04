@@ -17,10 +17,14 @@ type ByProjectAndLanguageDto struct {
 
 func toExportKey(data []db.Mutation) map[string]interface{} {
 	acc := make(map[string]interface{})
+
 	for _, current := range data {
+		// Split keys to array [common, actions, ...]
 		keys := strings.Split(current.Key, ".")
+		// Create temporary copy
 		tempObj := acc
 		mutationValuesLen := len(current.MutationValues)
+
 		for index, key := range keys {
 			if index == len(keys)-1 {
 				// If our index is the end of the keys list,
