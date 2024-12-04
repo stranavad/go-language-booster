@@ -2,10 +2,11 @@ package db
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"os"
 )
 
 type Project struct {
@@ -14,6 +15,24 @@ type Project struct {
 	SpaceID   uint   `json:"spaceId"`
 	Languages []Language
 	Mutations []Mutation
+	Versions []Version
+}
+
+type Version struct {
+	gorm.Model
+	Name string `json:"name" binding:"required"`
+	ProjectID uint
+	Project Project
+}
+
+type Mutation struct {
+	gorm.Model
+	Key            string          `json:"key"`
+	ProjectID      uint            `json:"projectId"`
+	VersionID 		*uint 			`json:"versionId"`
+	Version  		*Version 		`json:"version"`
+	Status         string          `json:"status"`
+	MutationValues []MutationValue `json:"values"`
 }
 
 func (project *Project) ToSimpleProject() SimpleProject {
@@ -106,13 +125,6 @@ type Language struct {
 	MutationValues []MutationValue
 }
 
-type Mutation struct {
-	gorm.Model
-	Key            string          `gorm:"index:idx_key_projectID,unique" json:"key"`
-	ProjectID      uint            `gorm:"index:idx_key_projectID,unique" json:"projectId"`
-	Status         string          `json:"status"`
-	MutationValues []MutationValue `json:"values"`
-}
 
 func (mutation *Mutation) ToSimpleMutation() SimpleMutation {
 	mutationValues := make([]SimpleMutationValue, len(mutation.MutationValues))
@@ -191,7 +203,7 @@ func init() {
 		panic("Failed to connect database")
 	}
 
-	err = db.AutoMigrate(&Space{}, &Project{}, &Language{}, &Mutation{}, &MutationValue{}, &User{})
+	err = db.AutoMigrate(&Space{}, &Project{}, &Language{}, &Version{}, &Mutation{}, &MutationValue{}, &User{})
 	if err != nil {
 		panic("Failed to migrate database")
 	}

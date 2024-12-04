@@ -1,11 +1,12 @@
 package projects
 
 import (
-	"github.com/gin-gonic/gin"
 	"languageboostergo/auth"
 	"languageboostergo/db"
 	"net/http"
 	"strconv"
+
+	"github.com/gin-gonic/gin"
 )
 
 var conn = db.GetDb()
@@ -51,14 +52,15 @@ func CreateProject(c *gin.Context) {
 func GetById(c *gin.Context) {
 	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 32)
 	if err != nil {
-		panic("Project ID is not number serializable")
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Project id is invalid"})
+		return
 	}
 
 	userId := c.MustGet("userId").(uint)
 	projectId := uint(projectIdParam)
 
 	if !auth.IsUserInProject(userId, projectId) {
-		c.JSON(403, "You cannot update this project")
+		c.JSON(403, "You cannot read this project")
 		return
 	}
 
@@ -70,7 +72,8 @@ func GetById(c *gin.Context) {
 func UpdateProject(c *gin.Context) {
 	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 32)
 	if err != nil {
-		panic("Project ID is not number serializable")
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Project id is invalid"})
+		return
 	}
 
 	var request CreateProjectDto
@@ -101,8 +104,10 @@ func UpdateProject(c *gin.Context) {
 func ListProjects(c *gin.Context) {
 	spaceId, err := strconv.ParseUint(c.Param("spaceId"), 10, 32)
 	if err != nil {
-		panic("Space ID is not number serializable")
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Space id is invalid"})
+		return
 	}
+	
 	var foundSpace db.Space
 	conn.Preload("Users").Preload("Projects").First(&foundSpace, uint(spaceId))
 
@@ -117,7 +122,7 @@ func ListProjects(c *gin.Context) {
 	}
 
 	if !userInSpace {
-		c.JSON(403, "You are not in this space")
+		c.JSON(403, "Cannot access this space")
 		return
 	}
 

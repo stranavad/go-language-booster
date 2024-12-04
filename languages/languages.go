@@ -1,11 +1,12 @@
 package languages
 
 import (
-	"github.com/gin-gonic/gin"
 	"languageboostergo/auth"
 	"languageboostergo/db"
 	"net/http"
 	"strconv"
+
+	"github.com/gin-gonic/gin"
 )
 
 var conn = db.GetDb()
@@ -43,7 +44,8 @@ func CreateLanguage(c *gin.Context) {
 func GetLanguagesByProjectId(c *gin.Context) {
 	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 32)
 	if err != nil {
-		panic("Project ID is not number serializable")
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Project id is invalid"})
+		return
 	}
 
 	projectId := uint(projectIdParam)
@@ -68,7 +70,8 @@ func GetLanguagesByProjectId(c *gin.Context) {
 func UpdateLanguage(c *gin.Context) {
 	languageId, err := strconv.ParseUint(c.Param("languageId"), 10, 32)
 	if err != nil {
-		panic("Language ID is not number serializable")
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Language id is invalid"})
+		return
 	}
 
 	var request UpdateLanguageDto

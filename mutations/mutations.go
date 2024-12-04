@@ -1,11 +1,12 @@
 package mutations
 
 import (
-	"github.com/gin-gonic/gin"
 	"languageboostergo/auth"
 	"languageboostergo/db"
 	"net/http"
 	"strconv"
+
+	"github.com/gin-gonic/gin"
 )
 
 var conn = db.GetDb()
@@ -63,7 +64,7 @@ func CreateMutationValue(c *gin.Context) {
 	userId := c.MustGet("userId").(uint)
 
 	if !auth.IsUserInProject(userId, foundMutation.ProjectID) {
-		c.JSON(403, "You are not in this project")
+		c.JSON(403, "Cannot access this project")
 		return
 	}
 
@@ -79,7 +80,8 @@ func CreateMutationValue(c *gin.Context) {
 func UpdateMutation(c *gin.Context) {
 	mutationIdParam, err := strconv.ParseUint(c.Param("mutationId"), 10, 32)
 	if err != nil {
-		panic("Mutation ID is not number serializable")
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Mutation id is invalid"})
+		return
 	}
 
 	var request UpdateMutationDto
@@ -95,7 +97,7 @@ func UpdateMutation(c *gin.Context) {
 	userId := c.MustGet("userId").(uint)
 
 	if !auth.IsUserInProject(userId, updatedMutation.ProjectID) {
-		c.JSON(403, "You are not in this project")
+		c.JSON(403, "Cannot access this project")
 		return
 	}
 
@@ -123,7 +125,8 @@ func UpdateMutation(c *gin.Context) {
 func GetById(c *gin.Context) {
 	mutationIdParam, err := strconv.ParseUint(c.Param("mutationId"), 10, 32)
 	if err != nil {
-		panic("Mutation ID is not number serializable")
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Mutation id is invalid"})
+		return
 	}
 
 	mutationId := uint(mutationIdParam)
@@ -149,7 +152,8 @@ func GetById(c *gin.Context) {
 func DeleteById(c *gin.Context) {
 	mutationIdParam, err := strconv.ParseUint(c.Param("mutationId"), 10, 32)
 	if err != nil {
-		panic("Mutation ID is not number serializable")
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Mutation id is invalid"})
+		return
 	}
 
 	mutationId := uint(mutationIdParam)
@@ -260,7 +264,8 @@ func ListByProject(c *gin.Context) {
 func UpdateMutationValue(c *gin.Context) {
 	mutationValueIdParam, err := strconv.ParseUint(c.Param("mutationValueId"), 10, 32)
 	if err != nil {
-		panic("Mutation Value ID is not number serializable")
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Mutation id is invalid"})
+		return
 	}
 
 	var request UpdateMutationValueDto

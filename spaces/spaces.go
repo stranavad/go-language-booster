@@ -40,7 +40,8 @@ type UpdateSpaceDto struct {
 func GetById(c *gin.Context) {
 	spaceIdParam, err := strconv.ParseUint(c.Param("spaceId"), 10, 32)
 	if err != nil {
-		panic("Space ID is not number serializable")
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Space id is invalid"})
+		return
 	}
 	spaceId := uint(spaceIdParam)
 	userId := c.MustGet("userId").(uint)
@@ -67,7 +68,8 @@ func GetById(c *gin.Context) {
 func UpdateSpace(c *gin.Context) {
 	spaceIdParam, err := strconv.ParseUint(c.Param("spaceId"), 10, 32)
 	if err != nil {
-		panic("Space ID is not number serializable")
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Space id is invalid"})
+		return
 	}
 	spaceId := uint(spaceIdParam)
 
@@ -102,7 +104,8 @@ func UpdateSpace(c *gin.Context) {
 func LeaveSpace(c *gin.Context) {
 	spaceIdParam, err := strconv.ParseUint(c.Param("spaceId"), 10, 32)
 	if err != nil {
-		panic("Space ID is not number serializable")
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Space id is invalid"})
+		return
 	}
 	spaceId := uint(spaceIdParam)
 
@@ -139,7 +142,8 @@ func ListUserSpaces(c *gin.Context) {
 func AddUserToSpace(c *gin.Context) {
 	spaceId, err := strconv.ParseUint(c.Param("spaceId"), 10, 32)
 	if err != nil {
-		panic("Space ID is not number serializable")
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Space id is invalid"})
+		return
 	}
 
 	userUsername := c.Param("username")
