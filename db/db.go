@@ -20,10 +20,11 @@ type Project struct {
 
 type Version struct {
 	gorm.Model
-	Name           string `json:"name" binding:"required"`
-	ProjectID      uint
-	Project        Project
-	MutationValues []MutationValue `gorm:"constraints:OnDelete:CASCADE;"`
+	Name      string `json:"name" binding:"required"`
+	ProjectID uint
+	Project   Project
+	Locked    bool
+	Mutations []Mutation `gorm:"constraints:OnDelete:CASCADE;"`
 }
 
 type Mutation struct {
@@ -39,7 +40,8 @@ type Mutation struct {
 type MutationValue struct {
 	gorm.Model
 	Value      string `json:"value"`
-	MutationId uint   `json:"mutationId"`
+	MutationID uint   `json:"mutationId"`
+	Mutation   Mutation
 	LanguageId uint   `json:"languageId"`
 	Status     string `json:"status"`
 }

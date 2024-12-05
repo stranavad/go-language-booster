@@ -5,6 +5,7 @@ import (
 	"gorm.io/gorm"
 	"languageboostergo/auth"
 	"languageboostergo/db"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -18,6 +19,7 @@ type CreateMutationDto struct {
 	Key       string                   `json:"key" binding:"required"`
 	Status    string                   `json:"status" binding:"required"`
 	Values    []CreateMutationDtoValue `json:"values" binding:"required"`
+	VersionId *uint                    `json:"versionId"`
 }
 
 type CreateMutationDtoValue struct {
@@ -37,9 +39,9 @@ type UpdateMutationValueDto struct {
 }
 
 type CreateMutationValueDto struct {
-	Value      string `json:"value"`
-	MutationId uint   `json:"mutationId"`
-	LanguageId uint   `json:"languageId"`
+	Value      string `json:"value" binding:"required"`
+	MutationId uint   `json:"mutationId" binding:"required"`
+	LanguageId uint   `json:"languageId" binding:"required"`
 }
 
 type SearchMutationLanguageDto struct {
@@ -53,6 +55,28 @@ type SearchMutationsDto struct {
 	Languages []SearchMutationLanguageDto `json:"languages"`
 }
 
+type DBResponse struct {
+	Error error
+	Found bool
+}
+
+func HandleGormError(c *gin.Context, result *gorm.DB, notFoundMessage string) (bool, error) {
+	if result.Error == nil {
+		return true, nil
+	}
+
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": notFoundMessage})
+
+		return false, result.Error
+	}
+
+	log.Printf("Database error: %v", result.Error)
+
+	c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+	return false, result.Error
+}
+
 func CreateMutationValue(c *gin.Context) {
 	var request CreateMutationValueDto
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -61,7 +85,9 @@ func CreateMutationValue(c *gin.Context) {
 	}
 
 	var foundMutation db.Mutation
-	conn.First(&foundMutation, request.MutationId)
+	if _, err := HandleGormError(c, conn.Preload("Version").First(&foundMutation, request.MutationId), "Mutation not found"); err != nil {
+		return
+	}
 
 	userId := c.MustGet("userId").(uint)
 
@@ -70,10 +96,15 @@ func CreateMutationValue(c *gin.Context) {
 		return
 	}
 
+	if foundMutation.Version != nil && foundMutation.Version.Locked {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "This version is locked, you cannot change anything"})
+		return
+	}
+
 	var newMutationValue db.MutationValue
 	newMutationValue.Value = request.Value
 	newMutationValue.LanguageId = request.LanguageId
-	newMutationValue.MutationId = request.MutationId
+	newMutationValue.MutationID = request.MutationId
 
 	conn.Create(&newMutationValue)
 	c.JSON(200, newMutationValue.ToSimpleMutationValue())
@@ -94,7 +125,9 @@ func UpdateMutation(c *gin.Context) {
 
 	mutationId := uint(mutationIdParam)
 	var updatedMutation db.Mutation
-	conn.First(&updatedMutation, mutationId)
+	if _, err = HandleGormError(c, conn.First(&updatedMutation, mutationId), "Mutation not found"); err != nil {
+		return
+	}
 
 	userId := c.MustGet("userId").(uint)
 
@@ -104,11 +137,15 @@ func UpdateMutation(c *gin.Context) {
 	}
 
 	// Check if key already exists or not
-	var mutations []db.Mutation
-	conn.Where("project_id = ? AND key = ?", updatedMutation.ProjectID, request.Key).Find(&mutations).Limit(1)
-	if len(mutations) > 0 && mutations[0].ID != updatedMutation.ID {
-		c.JSON(405, gin.H{"message": "Mutation with this key already exists"})
-		c.Abort()
+	var mutationCount int64
+	conn.
+		Where("project_id = ?", updatedMutation.ProjectID).
+		Where("key = ?", request.Key).
+		Not("id = ?", updatedMutation.ID).
+		Count(&mutationCount)
+
+	if mutationCount > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Mutation with this key already exists"})
 		return
 	}
 
@@ -133,18 +170,15 @@ func GetById(c *gin.Context) {
 
 	mutationId := uint(mutationIdParam)
 	var mutation db.Mutation
-	dbErr := conn.Preload("MutationValues").First(&mutation, mutationId).Error
+
+	if _, err = HandleGormError(c, conn.Preload("MutationValues").First(&mutation, mutationId), "Mutation not found"); err != nil {
+		return
+	}
 
 	userId := c.MustGet("userId").(uint)
 
 	if !auth.IsUserInProject(userId, mutation.ProjectID) {
 		c.JSON(403, "You are not in this project")
-		return
-	}
-
-	if dbErr != nil {
-		c.JSON(200, nil)
-		c.Abort()
 		return
 	}
 
@@ -153,6 +187,7 @@ func GetById(c *gin.Context) {
 
 func DeleteById(c *gin.Context) {
 	mutationIdParam, err := strconv.ParseUint(c.Param("mutationId"), 10, 32)
+
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "Mutation id is invalid"})
 		return
@@ -160,11 +195,18 @@ func DeleteById(c *gin.Context) {
 
 	mutationId := uint(mutationIdParam)
 	var mutation db.Mutation
-	conn.First(&mutation, mutationId)
+	if _, err = HandleGormError(c, conn.Preload("Version").First(&mutation, mutationId), "Mutation not found"); err != nil {
+		return
+	}
 
 	userId := c.MustGet("userId").(uint)
 	if !auth.IsUserInProject(userId, mutation.ProjectID) {
-		c.JSON(403, "You are not in this project")
+		c.JSON(http.StatusForbidden, "You don't have access to this project")
+		return
+	}
+
+	if mutation.Version.Locked {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "This version is locked, you cannot delete any mutations"})
 		return
 	}
 
@@ -188,48 +230,53 @@ func SearchByProject(c *gin.Context) {
 		return
 	}
 
+	foundVersion, err := GetVersionFromQuery(c, projectId)
+	if err != nil {
+		return
+	}
+
 	var request SearchMutationsDto
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	mvDb := conn
+	// Build or queries for languages
+	languageConditions := conn.Where("1 = 0") // TODO this may not work, claude recommended it for some way
 	for _, lang := range request.Languages {
-		mvDb = mvDb.Or("language_id = ? AND value LIKE ?", lang.LanguageId, "%"+lang.Search+"%")
+		languageConditions.Or("language_id = ? AND value LIKE ?", lang.LanguageId, "%"+lang.Search+"%")
 	}
 
-	var mutationValues []db.MutationValue
-	mvDb.Select("mutation_id").Find(&mutationValues)
+	// Prefilter ID for mutations
+	subQuery := conn.
+		Model(&db.Mutation{}).
+		Select("id").
+		Where("project_id = ?", projectId)
 
-	var mutationIds []uint
-	uniqueIds := make(map[uint]bool)
-
-	for _, value := range mutationValues {
-		if _, exists := uniqueIds[value.MutationId]; !exists {
-			mutationIds = append(mutationIds, value.MutationId)
-			uniqueIds[value.MutationId] = true
-		}
+	if foundVersion != nil {
+		subQuery.Where("version_id = ?", foundVersion.ID)
+	} else {
+		subQuery.Where("version_id IS NULL")
 	}
-
-	if len(mutationIds) == 0 {
-		var res []db.SimpleMutation
-		c.JSON(200, res)
-		return
-	}
-
-	var mutations []db.Mutation
-	resDb := conn.Preload("MutationValues").Order("key asc").Where(mutationIds).Where("project_id = ?", projectId)
 
 	if request.Key != "" {
-		resDb.Where("key like ?", "%"+request.Key+"%")
+		subQuery.Where("key like ?", "%"+request.Key+"%")
 	}
 
 	if request.Status != "" {
-		resDb.Where("status = ?", request.Status)
+		subQuery.Where("status = ?", request.Status)
 	}
 
-	resDb.Limit(100).Find(&mutations)
+	var mutationIds []uint
+	conn.
+		Model(&db.MutationValue{}).
+		Where(languageConditions).
+		Where("mutation_id IN (?)", subQuery).
+		Distinct("mutation_id").
+		Pluck("mutation_id", &mutationIds)
+
+	var mutations []db.Mutation
+	conn.Where("id IN (?)", mutationIds).Preload("MutationValues").Order("key asc").Find(&mutations)
 
 	simpleMutations := make([]db.SimpleMutation, len(mutations))
 	for i, v := range mutations {
@@ -237,6 +284,27 @@ func SearchByProject(c *gin.Context) {
 	}
 
 	c.JSON(200, simpleMutations)
+}
+
+func GetVersionFromQuery(c *gin.Context, projectId uint) (*db.Version, error) {
+	versionQuery := c.DefaultQuery("version", "latest")
+
+	// Using the current version, apply no filters
+	if versionQuery == "latest" {
+		return nil, nil
+	}
+
+	// If version is specified, check if it exists
+	var foundVersion db.Version
+	if _, err := HandleGormError(c, conn.
+		Where("project_id = ?", projectId).
+		Where("name = ?", versionQuery).
+		First(&foundVersion),
+		"Version not found"); err != nil {
+		return nil, err
+	}
+
+	return &foundVersion, nil
 }
 
 func ListByProject(c *gin.Context) {
@@ -247,18 +315,7 @@ func ListByProject(c *gin.Context) {
 
 	projectId := uint(projectIdParam)
 
-	versionQuery := c.DefaultQuery("version", "latest")
-
-	// IF version is specified, check if it exists
-	var foundVersion db.Version
-	if versionQuery != "latest" {
-		err = conn.Where("project_id = ?", projectId).Where("name = ?", versionQuery).First(&foundVersion).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"message": "Version with this name was not found"})
-			return
-		}
-	}
-
+	// Permission check
 	userId := c.MustGet("userId").(uint)
 
 	if !auth.IsUserInProject(userId, projectId) {
@@ -266,9 +323,15 @@ func ListByProject(c *gin.Context) {
 		return
 	}
 
+	// Version check
+	foundVersion, err := GetVersionFromQuery(c, projectId)
+	if err != nil {
+		return
+	}
+
 	// Create "query builder"
 	qb := conn.Preload("MutationValues").Order("key asc").Limit(100).Where("mutations.project_id = ?", projectId)
-	if versionQuery == "latest" {
+	if foundVersion == nil {
 		qb = qb.Where("mutations.version_id IS NULL")
 	} else {
 		qb = qb.Where("mutations.version_id = ?", foundVersion.ID)
@@ -296,19 +359,26 @@ func UpdateMutationValue(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
 	mutationValueId := uint(mutationValueIdParam)
 
 	var updatedMutationValue db.MutationValue
-	conn.First(&updatedMutationValue, mutationValueId)
+	conn.Joins("Mutation").Joins("Mutation.Version").First(&updatedMutationValue, mutationValueId)
 
-	var foundMutation db.Mutation
-	conn.First(&foundMutation, updatedMutationValue.MutationId)
+	foundMutation := updatedMutationValue.Mutation
+	foundVersion := foundMutation.Version
 
+	// Permission check
 	userId := c.MustGet("userId").(uint)
 
 	if !auth.IsUserInProject(userId, foundMutation.ProjectID) {
 		c.JSON(403, "You are not in this project")
 		return
+	}
+
+	// Check if the version is not already locked
+	if foundVersion != nil && foundVersion.Locked {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "You cannot update this value since the version is already locked"})
 	}
 
 	if request.Value != "" {
@@ -337,11 +407,32 @@ func CreateMutation(c *gin.Context) {
 		return
 	}
 
-	var mutations []db.Mutation
-	conn.Where("project_id = ? AND key = ?", data.ProjectId, data.Key).Find(&mutations).Limit(1)
-	if len(mutations) > 0 {
-		c.JSON(405, gin.H{"message": "Mutation with this key already exists"})
-		c.Abort()
+	// Check for versions
+	var foundVersion *db.Version
+	if data.VersionId != nil {
+		foundVersion = &db.Version{} // Initialize not-nil pointer
+
+		if _, err := HandleGormError(c, conn.First(foundVersion, data.VersionId), "Version not found"); err != nil {
+			return
+		}
+
+		if foundVersion.Locked {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "This version is already locked, so you cannot create new mutations in it"})
+			return
+		}
+
+	}
+
+	var matchedMutationsCount int64
+	qb := conn.Where("project_id = ?", data.ProjectId).Where("key = ?", data.Key)
+
+	if foundVersion != nil {
+		qb.Where("version_id = ?", foundVersion.ID)
+	}
+
+	qb.Count(&matchedMutationsCount)
+	if matchedMutationsCount > 0 {
+		c.JSON(405, gin.H{"message": "Mutation with this key already exists in this version"})
 		return
 	}
 
@@ -377,11 +468,17 @@ func CreateMutation(c *gin.Context) {
 		}
 	}
 
+	var foundVersionId *uint
+	if foundVersion != nil {
+		foundVersionId = &foundVersion.ID
+	}
+
 	mutation := db.Mutation{
 		ProjectID:      data.ProjectId,
 		Status:         data.Status,
 		Key:            data.Key,
-		MutationValues: mutationValues,
+		MutationValues: mutationValues, // create with association mode
+		VersionID:      foundVersionId,
 	}
 
 	conn.Create(&mutation)
