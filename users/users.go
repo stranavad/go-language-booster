@@ -1,18 +1,24 @@
 package users
 
 import (
-	"fmt"
-	"github.com/dgrijalva/jwt-go"
-	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/bcrypt"
 	"languageboostergo/db"
+	"languageboostergo/types"
+	"languageboostergo/utils"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/dgrijalva/jwt-go"
+	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 )
 
-var conn = db.GetDb()
 var secret = os.Getenv("JWT_SECRET")
+
+type Service struct {
+	types.ServiceConfig
+}
+
 
 func hashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 10)
@@ -38,30 +44,13 @@ func CreateToken(userId uint) (string, error) {
 	return token, nil
 }
 
-func ParseToken(tokenString string) (uint, error) {
-	claims := &jwt.MapClaims{}
-	_, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(secret), nil // Replace with your own secret
-	})
-
-	if err != nil {
-		return 0, err
-	}
-	userId := uint((*claims)["user_id"].(float64))
-
-	return userId, nil
-}
-
 type CreateUserDto struct {
 	Name     string `json:"name" binding:"required"`
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password"`
 }
 
-func CreateUser(c *gin.Context) {
+func (service *Service) CreateUser(c *gin.Context) {
 	var request CreateUserDto
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -70,17 +59,16 @@ func CreateUser(c *gin.Context) {
 
 	// First we have to check whether user with username already exists
 	var foundUsers []db.User
-	conn.Where("username = ?", request.Username).Find(&foundUsers).Limit(1)
+	service.DB.Where("username = ?", request.Username).Find(&foundUsers).Limit(1)
 	if len(foundUsers) > 0 {
-		c.JSON(403, "This user already exists")
+		c.JSON(http.StatusConflict, "This user already exists")
 		return
 	}
 
 	hashedPassword, passwordErr := hashPassword(request.Password)
 
 	if passwordErr != nil {
-		c.JSON(400, gin.H{"message": "Error when hashing password"})
-		c.Abort()
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Error when creating password"})
 		return
 	}
 
@@ -90,16 +78,16 @@ func CreateUser(c *gin.Context) {
 		Password: hashedPassword,
 	}
 
-	conn.Create(&user)
+	service.DB.Create(&user)
 
 	token, tokenErr := CreateToken(user.ID)
 	if tokenErr != nil {
-		c.JSON(403, "Error creating token")
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Error creating token"})
 		return
 	}
 
 	c.Writer.Header().Set("Authorization", token)
-	c.JSON(200, user.ToSimpleUser())
+	c.JSON(http.StatusOK, user.ToSimpleUser())
 }
 
 type LoginUserDto struct {
@@ -107,14 +95,18 @@ type LoginUserDto struct {
 	Password string `json:"password" binding:"required"`
 }
 
-func GetCurrent(c *gin.Context) {
+func (service *Service) GetCurrent(c *gin.Context) {
 	userId := c.MustGet("userId").(uint)
 	var foundUser db.User
-	conn.First(&foundUser, userId)
-	c.JSON(200, foundUser.ToSimpleUser())
+
+	if _, err := utils.HandleGormError(c, service.DB.First(&foundUser, userId), "User not found"); err != nil {
+		return
+	}
+
+	c.JSON(http.StatusOK, foundUser.ToSimpleUser())
 }
 
-func LoginUser(c *gin.Context) {
+func (service *Service) LoginUser(c *gin.Context) {
 	var request LoginUserDto
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -122,27 +114,23 @@ func LoginUser(c *gin.Context) {
 	}
 
 	var foundUser db.User
-	err := conn.Where("username = ?", request.Username).First(&foundUser).Error
-	if err != nil {
-		c.JSON(403, gin.H{"message": "Unauthorized"})
-		c.Abort()
+	if _, err := utils.HandleGormError(c, service.DB.Where("username = ?", request.Username).First(&foundUser), "User not found"); err != nil {
 		return
 	}
 
 	if !checkPassword(request.Password, foundUser.Password) {
-		c.JSON(403, gin.H{"message": "Unauthorized"})
-		c.Abort()
+		c.JSON(http.StatusForbidden, gin.H{"message": "Wrong password, unauthorized"})
 		return
 	}
 
 	token, tokenErr := CreateToken(foundUser.ID)
 
 	if tokenErr != nil {
-		c.JSON(403, "Error creating token")
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Error creating token"})
 		return
 	}
 
 	c.Writer.Header().Set("Authorization", token)
 
-	c.JSON(200, foundUser.ToSimpleUser())
+	c.JSON(http.StatusOK, foundUser.ToSimpleUser())
 }

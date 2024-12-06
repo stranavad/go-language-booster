@@ -196,11 +196,11 @@ func init() {
 	connStr := os.Getenv("DATABASE_URL")
 
 	fmt.Println("Connecting to DB")
-	var err error
-	db, err = gorm.Open(postgres.Open(connStr), &gorm.Config{
+	db, err := gorm.Open(postgres.Open(connStr), &gorm.Config{
 		SkipDefaultTransaction: true,
 		PrepareStmt:            true,
 	})
+
 	if err != nil {
 		panic("Failed to connect database")
 	}

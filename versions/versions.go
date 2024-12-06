@@ -2,12 +2,13 @@ package versions
 
 import (
 	"errors"
-	"gorm.io/gorm"
 	"languageboostergo/auth"
 	"languageboostergo/db"
 	"languageboostergo/types"
+	"languageboostergo/utils"
 	"net/http"
-	"strconv"
+
+	"gorm.io/gorm"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,13 +18,11 @@ type Service struct {
 }
 
 func (service *Service) DeleteVersion(c *gin.Context) {
-	versionIdParam, err := strconv.ParseUint(c.Param("versionId"), 10, 32)
+	versionId, err := utils.GetRouteParam(c, "versionId", "Version id is invalid")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "Version id is invalid"})
 		return
 	}
 
-	versionId := uint(versionIdParam)
 	userId := c.MustGet("userId").(uint)
 
 	var version db.Version
@@ -40,7 +39,7 @@ func (service *Service) DeleteVersion(c *gin.Context) {
 		return
 	}
 
-	service.DB.Unscoped().Delete(&version)
+	service.DB.Delete(&version)
 }
 
 func (service *Service) PublishVersion(c *gin.Context) {

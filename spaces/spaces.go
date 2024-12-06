@@ -1,34 +1,43 @@
 package spaces
 
 import (
-	"fmt"
-	"github.com/gin-gonic/gin"
 	"languageboostergo/db"
+	"languageboostergo/types"
+	"languageboostergo/utils"
 	"net/http"
-	"strconv"
+
+	"github.com/gin-gonic/gin"
 )
 
-var conn = db.GetDb()
+
+type Service struct {
+	types.ServiceConfig
+}
+
 
 type CreateSpaceDto struct {
 	Name string `json:"name" binding:"required"`
 }
 
-func CreateSpace(c *gin.Context) {
+func (service *Service) CreateSpace(c *gin.Context) {
 	var request CreateSpaceDto
+
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
 	var user db.User
-	conn.First(&user, c.MustGet("userId").(uint))
+	if _, err := utils.HandleGormError(c, service.DB.First(&user, c.MustGet("userId").(uint)), "User not found"); err != nil {
+		return
+	}
 
 	newSpace := db.Space{
 		Name: request.Name,
 	}
 
 	newSpace.Users = append(newSpace.Users, user)
-	conn.Save(&newSpace)
+	service.DB.Save(&newSpace)
 
 	c.JSON(200, newSpace.ToSimpleSpace())
 }
@@ -37,17 +46,17 @@ type UpdateSpaceDto struct {
 	Name string `json:"name"`
 }
 
-func GetById(c *gin.Context) {
-	spaceIdParam, err := strconv.ParseUint(c.Param("spaceId"), 10, 32)
+func (service *Service) GetById(c *gin.Context) {
+	spaceId, err := utils.GetRouteParam(c, "spaceId", "Space id is invalid")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "Space id is invalid"})
 		return
 	}
-	spaceId := uint(spaceIdParam)
 	userId := c.MustGet("userId").(uint)
 
 	var foundSpace db.Space
-	conn.Preload("Projects").Preload("Users").First(&foundSpace, spaceId)
+	if _, err := utils.HandleGormError(c, service.DB.Preload("Users").Preload("Projects").First(&foundSpace, spaceId), "Space not found"); err != nil {
+		return
+	}
 
 	userIsInSpace := false
 	for _, user := range foundSpace.Users {
@@ -58,23 +67,29 @@ func GetById(c *gin.Context) {
 	}
 
 	if !userIsInSpace {
-		c.JSON(403, "You are not in this space")
+		c.JSON(http.StatusForbidden, gin.H{"message": "Cannot access this space"})
 		return
 	}
 
 	c.JSON(200, foundSpace.ToSimpleSpace())
 }
 
-func UpdateSpace(c *gin.Context) {
-	spaceIdParam, err := strconv.ParseUint(c.Param("spaceId"), 10, 32)
+func (service *Service) UpdateSpace(c *gin.Context) {
+	spaceId, err := utils.GetRouteParam(c, "spaceId", "Space id is invalid")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "Space id is invalid"})
 		return
 	}
-	spaceId := uint(spaceIdParam)
+
+	var request CreateSpaceDto
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	var foundSpace db.Space
-	conn.Preload("Users").First(&foundSpace, spaceId)
+	if _, err := utils.HandleGormError(c, service.DB.Preload("Users").First(&foundSpace, spaceId), "Space not found"); err != nil {
+		return
+	}
 
 	userId := c.MustGet("userId").(uint)
 	userInSpace := false
@@ -86,50 +101,51 @@ func UpdateSpace(c *gin.Context) {
 	}
 
 	if !userInSpace {
-		c.JSON(403, "You are not in this space, stupid")
+		c.JSON(http.StatusForbidden, gin.H{"message": "Cannot access this space"})
 		return
 	}
 
-	var request CreateSpaceDto
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+
+	if _, err := utils.HandleGormError(c, service.DB.Model(&foundSpace).Updates(db.Space{Name: request.Name}), ""); err != nil {
 		return
 	}
 
-	conn.Model(&foundSpace).Updates(db.Space{Name: request.Name})
-	c.JSON(200, foundSpace.ToSimpleSpace())
+	c.JSON(http.StatusOK, foundSpace.ToSimpleSpace())
 
 }
 
-func LeaveSpace(c *gin.Context) {
-	spaceIdParam, err := strconv.ParseUint(c.Param("spaceId"), 10, 32)
+func (service *Service) LeaveSpace(c *gin.Context) {
+	spaceId, err := utils.GetRouteParam(c, "spaceId", "Space id is invalid")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "Space id is invalid"})
 		return
 	}
-	spaceId := uint(spaceIdParam)
 
 	var foundSpace db.Space
-	conn.First(&foundSpace, spaceId)
-
-	var foundUser db.User
-	conn.First(&foundUser, c.MustGet("userId").(uint))
-
-	fmt.Println(foundUser)
-	fmt.Println(foundSpace)
-
-	spaceErr := conn.Model(&foundUser).Association("Spaces").Delete([]db.Space{foundSpace})
-	if spaceErr != nil {
+	if _, err := utils.HandleGormError(c, service.DB.First(&foundSpace, spaceId), "Space not found"); err != nil {
 		return
 	}
 
-	c.JSON(200, "Successfully removed you from this space")
+	var foundUser db.User
+	if _, err := utils.HandleGormError(c, service.DB.First(&foundUser, c.MustGet("userId").(uint)), "User not found"); err != nil {
+		return
+	}
+
+	spaceErr := service.DB.Model(&foundUser).Association("Spaces").Delete([]db.Space{foundSpace})
+	if spaceErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": spaceErr.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Successfully removed you from this space"})
 }
 
-func ListUserSpaces(c *gin.Context) {
+func (service *Service) ListUserSpaces(c *gin.Context) {
 	userId := c.MustGet("userId").(uint)
+
 	var foundUser db.User
-	conn.Preload("Spaces").First(&foundUser, userId)
+	if _, err := utils.HandleGormError(c, service.DB.Preload("Spaces").First(&foundUser, userId), "User not found"); err != nil {
+		return
+	}
 
 	simpleSpaces := make([]db.SimpleSpace, len(foundUser.Spaces))
 	for i, v := range foundUser.Spaces {
@@ -139,17 +155,18 @@ func ListUserSpaces(c *gin.Context) {
 	c.JSON(200, simpleSpaces)
 }
 
-func AddUserToSpace(c *gin.Context) {
-	spaceId, err := strconv.ParseUint(c.Param("spaceId"), 10, 32)
+func (service *Service) AddUserToSpace(c *gin.Context) {
+	spaceId, err := utils.GetRouteParam(c, "spaceId", "Space id is invalid")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "Space id is invalid"})
 		return
 	}
 
 	userUsername := c.Param("username")
 
 	var foundSpace db.Space
-	conn.Preload("Users").First(&foundSpace, uint(spaceId))
+	if _, err := utils.HandleGormError(c, service.DB.Preload("Users").First(&foundSpace, spaceId), "Space not found"); err != nil {
+		return
+	}
 
 	// Now we have to check whether user is in this space
 	userId := c.MustGet("userId").(uint)
@@ -165,34 +182,30 @@ func AddUserToSpace(c *gin.Context) {
 	}
 
 	if !foundUser {
-		c.JSON(403, "You are not in this space stupid")
-		c.Abort()
+		c.JSON(http.StatusForbidden, gin.H{"message": "Cannot access this space"})
 		return
 	}
 
 	if userIsInSpace {
-		c.JSON(400, "User is already in this space")
-		c.Abort()
+		c.JSON(http.StatusNotFound,gin.H{"message":  "User not found"})
 		return
 	}
 
 	var newUser db.User
-	userErr := conn.Where("username = ?", userUsername).First(&newUser).Error
+	userErr := service.DB.Where("username = ?", userUsername).First(&newUser).Error
 	if userErr != nil {
-		c.JSON(400, "Request user doesn't exist")
-		c.Abort()
+		c.JSON(http.StatusNotFound, "Target user not found")
 		return
 	}
 
 	if newUser.ID == userId {
-		c.JSON(400, "You are the user, stupid")
-		c.Abort()
+		c.JSON(http.StatusConflict, "You are the target user")
 		return
 	}
 
 	foundSpace.Users = append(foundSpace.Users, newUser)
 
-	conn.Save(&foundSpace)
+	service.DB.Save(&foundSpace)
 
 	c.JSON(200, foundSpace.ToSimpleSpace())
 }

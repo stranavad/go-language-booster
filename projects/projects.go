@@ -3,20 +3,24 @@ package projects
 import (
 	"languageboostergo/auth"
 	"languageboostergo/db"
+	"languageboostergo/types"
+	"languageboostergo/utils"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
-var conn = db.GetDb()
 
 type CreateProjectDto struct {
 	Name    string `json:"name" binding:"required"`
 	SpaceId uint   `json:"spaceId"`
 }
 
-func CreateProject(c *gin.Context) {
+type Service struct {
+	types.ServiceConfig
+}
+
+func (service *Service) CreateProject(c *gin.Context) {
 	var request CreateProjectDto
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -24,7 +28,10 @@ func CreateProject(c *gin.Context) {
 	}
 
 	var foundSpace db.Space
-	conn.Preload("Users").First(&foundSpace, request.SpaceId)
+	if _, err := utils.HandleGormError(c, service.DB.Preload("Users").First(&foundSpace, request.SpaceId), "Space not found"); err != nil {
+		return
+	}
+
 	userId := c.MustGet("userId").(uint)
 	userInSpace := false
 	for _, user := range foundSpace.Users {
@@ -35,7 +42,7 @@ func CreateProject(c *gin.Context) {
 	}
 
 	if !userInSpace {
-		c.JSON(403, "You are not in this space stupid")
+		c.JSON(http.StatusForbidden, "Cannot access this space")
 		return
 	}
 
@@ -44,35 +51,35 @@ func CreateProject(c *gin.Context) {
 		SpaceID: foundSpace.ID,
 	}
 
-	conn.Create(&newProject)
+	service.DB.Create(&newProject)
 
-	c.JSON(200, newProject.ToSimpleProject())
+	c.JSON(http.StatusCreated, newProject.ToSimpleProject())
 }
 
-func GetById(c *gin.Context) {
-	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 32)
+func (service *Service) GetById(c *gin.Context) {
+	projectId, err := utils.GetRouteParam(c, "projectId", "Project id is invalid")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "Project id is invalid"})
 		return
 	}
 
 	userId := c.MustGet("userId").(uint)
-	projectId := uint(projectIdParam)
 
 	if !auth.IsUserInProject(userId, projectId) {
-		c.JSON(403, "You cannot read this project")
+		c.JSON(http.StatusForbidden, "Cannot access this project")
 		return
 	}
 
 	var foundProject db.Project
-	conn.First(&foundProject, projectId)
-	c.JSON(200, foundProject.ToSimpleProject())
+	if _, err := utils.HandleGormError(c, service.DB.First(&foundProject, projectId), "Project not found"); err != nil {
+		return
+	}
+
+	c.JSON(http.StatusOK, foundProject.ToSimpleProject())
 }
 
-func UpdateProject(c *gin.Context) {
-	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 32)
+func (service *Service) UpdateProject(c *gin.Context) {
+	projectId, err := utils.GetRouteParam(c, "projectId", "Project id is invalid")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "Project id is invalid"})
 		return
 	}
 
@@ -83,33 +90,34 @@ func UpdateProject(c *gin.Context) {
 	}
 
 	userId := c.MustGet("userId").(uint)
-	projectId := uint(projectIdParam)
 
 	if !auth.IsUserInProject(userId, projectId) {
-		c.JSON(403, "You cannot update this project")
+		c.JSON(http.StatusForbidden, "Cannot access this project")
 		return
 	}
 
 	var updateData db.Project
-	conn.First(&updateData, projectId)
+	service.DB.First(&updateData, projectId)
 
 	if request.Name != "" {
 		updateData.Name = request.Name
 	}
 
-	conn.Save(&updateData)
-	c.JSON(200, updateData.ToSimpleProject())
+	service.DB.Save(&updateData)
+	c.JSON(http.StatusCreated, updateData.ToSimpleProject())
 }
 
-func ListProjects(c *gin.Context) {
-	spaceId, err := strconv.ParseUint(c.Param("spaceId"), 10, 32)
+func (service *Service) ListProjects(c *gin.Context) {
+	spaceId, err := utils.GetRouteParam(c, "spaceId", "Space id is invalid")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "Space id is invalid"})
 		return
 	}
-	
+
+
 	var foundSpace db.Space
-	conn.Preload("Users").Preload("Projects").First(&foundSpace, uint(spaceId))
+	if _, err := utils.HandleGormError(c, service.DB.Preload("Users").Preload("Projects").First(&foundSpace, spaceId), "Space not found"); err != nil {
+		return
+	}
 
 	// Check user relevance
 	userId := c.MustGet("userId").(uint)
@@ -122,9 +130,9 @@ func ListProjects(c *gin.Context) {
 	}
 
 	if !userInSpace {
-		c.JSON(403, "Cannot access this space")
+		c.JSON(http.StatusForbidden, "Cannot access this space")
 		return
 	}
 
-	c.JSON(200, foundSpace.ToSimpleSpace().Projects)
+	c.JSON(http.StatusOK, foundSpace.ToSimpleSpace().Projects)
 }

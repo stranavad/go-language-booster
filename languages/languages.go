@@ -3,13 +3,12 @@ package languages
 import (
 	"languageboostergo/auth"
 	"languageboostergo/db"
+	"languageboostergo/types"
+	"languageboostergo/utils"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
-
-var conn = db.GetDb()
 
 type CreateLanguageDto struct {
 	ProjectId uint   `json:"projectId" binding:"required"`
@@ -20,7 +19,11 @@ type UpdateLanguageDto struct {
 	Name string `json:"name" binding:"required"`
 }
 
-func CreateLanguage(c *gin.Context) {
+type Service struct {
+	types.ServiceConfig
+}
+
+func (service *Service) CreateLanguage(c *gin.Context) {
 	var data CreateLanguageDto
 	if err := c.ShouldBindJSON(&data); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -30,47 +33,46 @@ func CreateLanguage(c *gin.Context) {
 	userId := c.MustGet("userId").(uint)
 
 	if !auth.IsUserInProject(userId, data.ProjectId) {
-		c.JSON(403, "You are not in this project")
+		c.JSON(http.StatusForbidden, "Cannot access this project")
 		return
 	}
 
 	var newLanguage db.Language
 	newLanguage.ProjectID = data.ProjectId
 	newLanguage.Name = data.Name
-	conn.Create(&newLanguage)
+	service.DB.Create(&newLanguage)
 	c.JSON(200, newLanguage.ToSimpleLanguage())
 }
 
-func GetLanguagesByProjectId(c *gin.Context) {
-	projectIdParam, err := strconv.ParseUint(c.Param("projectId"), 10, 32)
+func (service *Service) GetLanguagesByProjectId(c *gin.Context) {
+	projectId, err := utils.GetRouteParam(c, "projectId", "Project id is invalid")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "Project id is invalid"})
 		return
 	}
 
-	projectId := uint(projectIdParam)
 	userId := c.MustGet("userId").(uint)
 
 	if !auth.IsUserInProject(userId, projectId) {
-		c.JSON(403, "You are not in this project")
+		c.JSON(http.StatusForbidden, "Cannot access this project")
 		return
 	}
 
 	var languages []db.SimpleLanguage
 
-	err = conn.Model(&db.Language{}).Where("project_id = ?", projectId).Find(&languages).Error
+	err = service.DB.Model(&db.Language{}).Where("project_id = ?", projectId).Find(&languages).Error
+
 	if err != nil {
-		c.JSON(500, "Internal server error")
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed getting languages"})
+		return
 	}
 
-	c.JSON(200, languages)
+	c.JSON(http.StatusOK, languages)
 
 }
 
-func UpdateLanguage(c *gin.Context) {
-	languageId, err := strconv.ParseUint(c.Param("languageId"), 10, 32)
+func (service *Service) UpdateLanguage(c *gin.Context) {
+	languageId, err := utils.GetRouteParam(c, "language", "Language id is invalid")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "Language id is invalid"})
 		return
 	}
 
@@ -81,12 +83,12 @@ func UpdateLanguage(c *gin.Context) {
 	}
 
 	var updatedLanguage db.Language
-	conn.First(&updatedLanguage, uint(languageId))
+	service.DB.First(&updatedLanguage, languageId)
 
 	userId := c.MustGet("userId").(uint)
 
 	if !auth.IsUserInProject(userId, updatedLanguage.ProjectID) {
-		c.JSON(403, "You are not in this project")
+		c.JSON(http.StatusForbidden, gin.H{"message": "You are not in this project"})
 		return
 	}
 
@@ -94,6 +96,6 @@ func UpdateLanguage(c *gin.Context) {
 		updatedLanguage.Name = request.Name
 	}
 
-	conn.Save(&updatedLanguage)
-	c.JSON(200, updatedLanguage.ToSimpleLanguage())
+	service.DB.Save(&updatedLanguage)
+	c.JSON(http.StatusOK, updatedLanguage.ToSimpleLanguage())
 }

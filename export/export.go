@@ -1,18 +1,22 @@
 package export
 
 import (
-	"github.com/gin-gonic/gin"
 	"languageboostergo/auth"
 	"languageboostergo/db"
+	"languageboostergo/types"
 	"net/http"
 	"strings"
-)
 
-var conn = db.GetDb()
+	"github.com/gin-gonic/gin"
+)
 
 type ByProjectAndLanguageDto struct {
 	ProjectID  uint `json:"projectId" binding:"required"`
 	LanguageID uint `json:"languageId" binding:"required"`
+}
+
+type Service struct {
+	types.ServiceConfig
 }
 
 func toExportKey(data []db.Mutation) map[string]interface{} {
@@ -51,7 +55,7 @@ func toExportKey(data []db.Mutation) map[string]interface{} {
 	return acc
 }
 
-func ByProjectIdAndLanguageId(c *gin.Context) {
+func (service *Service) ByProjectIdAndLanguageId(c *gin.Context) {
 	var request ByProjectAndLanguageDto
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -66,6 +70,9 @@ func ByProjectIdAndLanguageId(c *gin.Context) {
 	}
 
 	var mutations []db.Mutation
-	conn.Preload("MutationValues", "language_id = ?", request.LanguageID).Order("key asc").Find(&mutations, "mutations.project_id = ?", request.ProjectID)
+	service.DB.
+		Preload("MutationValues", "language_id = ?", request.LanguageID).
+		Order("key asc").
+		Find(&mutations, "mutations.project_id = ?", request.ProjectID)
 	c.JSON(200, toExportKey(mutations))
 }
