@@ -10,11 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type ByProjectAndLanguageDto struct {
-	ProjectID  uint `json:"projectId" binding:"required"`
-	LanguageID uint `json:"languageId" binding:"required"`
-}
-
 type Service struct {
 	types.ServiceConfig
 }

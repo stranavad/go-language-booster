@@ -1,16 +1,15 @@
-package types
+package versions
 
 import "languageboostergo/db"
 
 type PublishVersionDto struct {
 	ProjectID uint
-	Name string
+	Name      string
 }
 
-
-func(version *PublishVersionDto) ToModel() db.Version {
+func (version *PublishVersionDto) ToModel() db.Version {
 	return db.Version{
-		Name: version.Name,
+		Name:      version.Name,
 		ProjectID: version.ProjectID,
 	}
 }

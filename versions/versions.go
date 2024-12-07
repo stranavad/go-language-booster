@@ -47,7 +47,7 @@ func (service *Service) PublishVersion(c *gin.Context) {
 	userId := c.MustGet("userId").(uint)
 
 	// Get request body
-	var request types.PublishVersionDto
+	var request PublishVersionDto
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
