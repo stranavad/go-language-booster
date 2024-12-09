@@ -36,16 +36,10 @@ func (service *Service) CreateMutationValue(c *gin.Context) {
 		return
 	}
 
-	if foundMutation.Branch != nil && foundMutation.Branch.Locked {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "This branch is locked, you cannot change anything"})
-		return
-	}
-
 	var newMutationValue db.MutationValue
 	newMutationValue.Value = request.Value
 	newMutationValue.LanguageId = request.LanguageId
 	newMutationValue.MutationID = request.MutationId
-
 	service.DB.Create(&newMutationValue)
 	c.JSON(http.StatusOK, newMutationValue.ToSimpleMutationValue())
 }
@@ -56,7 +50,6 @@ func (service *Service) UpdateMutation(c *gin.Context) {
 		return
 	}
 
-
 	var request UpdateMutationDto
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -64,7 +57,7 @@ func (service *Service) UpdateMutation(c *gin.Context) {
 	}
 
 	var foundMutation db.Mutation
-	if _, err = utils.HandleGormError(c, service.DB.First(&foundMutation, mutationId), "Mutation not found"); err != nil {
+	if _, err = utils.HandleGormError(c, service.DB.Joins("Branch").Joins("MutationValues").First(&foundMutation, mutationId), "Mutation not found"); err != nil {
 		return
 	}
 
@@ -74,6 +67,37 @@ func (service *Service) UpdateMutation(c *gin.Context) {
 		return
 	}
 
+	// User is trying to update a mutation, but the mutation is still in the latest branch
+	if request.BranchID != nil && foundMutation.BranchID == nil {
+		var foundBranch db.Branch
+		if _, err := utils.HandleGormError(c, service.DB.Where("id = ?", request.BranchID).Where("project_id = ?", foundMutation.ProjectID).First(&foundBranch), "branch not found"); err != nil {
+			return
+		}
+
+		var mutationValuesToCreate []db.MutationValue
+		for _, value := range foundMutation.MutationValues {
+			mutationValuesToCreate = append(mutationValuesToCreate, db.MutationValue{
+				Value:       value.Value,
+				LanguageId:  value.LanguageId,
+				UpdatedById: userId,
+			})
+		}
+
+		// Duplicate mutation into the new branch
+		mutationToCreate := db.Mutation{
+			ProjectID:      foundMutation.ProjectID,
+			Key:            foundMutation.Key,
+			BranchID:       &foundBranch.ID,
+			BaseMutationID: &foundMutation.ID,
+			MutationValues: mutationValuesToCreate,
+		}
+
+		service.DB.Create(&mutationToCreate)
+		service.DB.Joins("Branch").Joins("MutationValues").First(&foundMutation, mutationToCreate.ID)
+	} else if request.BranchID != foundMutation.BranchID {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Something is fucked up with the branches"})
+		return
+	}
 
 	// Check if the branch is locked and whether the user can update it
 	foundBranch, err := service.CanUpdateBranch(c, foundMutation.ProjectID, foundMutation.BranchID, userId)
@@ -104,7 +128,6 @@ func (service *Service) UpdateMutation(c *gin.Context) {
 	if request.Key != "" {
 		foundMutation.Key = request.Key
 	}
-
 
 	service.DB.Save(&foundMutation)
 	c.JSON(http.StatusOK, foundMutation.ToSimpleMutation())
@@ -201,7 +224,6 @@ func (service *Service) SearchByProject(c *gin.Context) {
 	if request.Key != "" {
 		subQuery.Where("key like ?", "%"+request.Key+"%")
 	}
-
 
 	var mutationIds []uint
 	service.DB.
@@ -321,30 +343,24 @@ func (service *Service) UpdateMutationValue(c *gin.Context) {
 	c.JSON(http.StatusOK, updatedMutationValue.ToSimpleMutationValue())
 }
 
-func (service *Service) CanUpdateBranch(c *gin.Context, projectId uint, branchId *uint, userId uint) (*db.Branch,error) {
+func (service *Service) CanUpdateBranch(c *gin.Context, projectId uint, branchId *uint, userId uint) (*db.Branch, error) {
 	var foundSpaceMember db.SpaceMember
 	if _, err := utils.HandleGormError(c, service.DB.Where("user_id = ?", userId).Where("space_id = ?", service.DB.Model(&db.Project{}).Select("space_id").Where("id = ?", projectId)).First(&foundSpaceMember), "Space member not found"); err != nil {
 		return nil, err
 	}
 
 	if foundSpaceMember.Role == db.Viewer {
-		err := errors.New("You don't have enough permissions to update this branch")
+		err := errors.New("you don't have enough permissions to update this branch")
 		c.JSON(http.StatusForbidden, gin.H{"message": err.Error()})
 		return nil, err
 	}
 
-	// Check for branchs
+	// Check for branches
 	var foundBranch *db.Branch
 	if branchId != nil {
 		foundBranch = &db.Branch{} // Initialize not-nil pointer
 
 		if _, err := utils.HandleGormError(c, service.DB.Where("id = ?", branchId).First(foundBranch), "Branch not found"); err != nil {
-			return nil, err
-		}
-
-		if foundBranch.Locked {
-			err := errors.New("Branch is already locked")
-			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 			return nil, err
 		}
 	}
@@ -442,7 +458,7 @@ func (service *Service) CreateMutation(c *gin.Context) {
 		ProjectID:      data.ProjectId,
 		Key:            data.Key,
 		MutationValues: mutationValues, // create with association mode
-		BranchID:      foundBranchId,
+		BranchID:       foundBranchId,
 	}
 
 	service.DB.Create(&mutation)

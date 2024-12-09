@@ -1,8 +1,8 @@
-<?xml branch="1.0" encoding="UTF-8"?>
-<project branch="4">
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/languageboostergo.iml" filepath="$PROJECT_DIR$/.idea/languageboostergo.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/go-language-booster.iml" filepath="$PROJECT_DIR$/.idea/go-language-booster.iml" />
     </modules>
   </component>
 </project>

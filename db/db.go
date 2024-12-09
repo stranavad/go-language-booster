@@ -14,19 +14,19 @@ type Project struct {
 	gorm.Model
 	Name      string `json:"name" binding:"required"`
 	SpaceID   uint   `json:"spaceId"`
-	Space Space
+	Space     Space
 	Languages []Language
 	Mutations []Mutation
 	Branches  []Branch
-	Settings ProjectSettings
-	Requests []Request
+	Settings  ProjectSettings
+	Requests  []Request
 }
 
 func (p *Project) BeforeCreate(tx *gorm.DB) (err error) {
 	// Create default project settings
 	p.Settings = ProjectSettings{}
 
-  return
+	return
 }
 
 type ProjectSettings struct {
@@ -40,41 +40,41 @@ type Branch struct {
 	gorm.Model
 	Name      string `json:"name" binding:"required"`
 	ProjectID uint
-	UserID uint
-	User User
+	UserID    uint
+	User      User
 	Project   Project
 	Mutations []Mutation `gorm:"constraints:OnDelete:CASCADE;"`
 }
 
-
 type Request struct {
 	gorm.Model
-	Name string
+	Name      string
 	ProjectID uint
-	Project Project
-	BranchID uint
-	Branch Branch
-	UserID uint
-	User User
+	Project   Project
+	BranchID  uint
+	Branch    Branch
+	UserID    uint
+	User      User
 }
 
 type Mutation struct {
 	gorm.Model
-	Key            string          `json:"key"`
+	Key            string `json:"key"`
+	BaseMutationID *uint
 	ProjectID      uint            `json:"projectId"`
-	BranchID      *uint           `json:"branchId"`
-	Branch        *Branch        `json:"branch"`
+	BranchID       *uint           `json:"branchId"`
+	Branch         *Branch         `json:"branch"`
 	MutationValues []MutationValue `json:"values" gorm:"constraint:OnDelete:CASCADE;"`
 }
 
 type MutationValue struct {
 	gorm.Model
-	Value      string `json:"value"`
-	MutationID uint   `json:"mutationId"`
-	Mutation   Mutation
-	LanguageId uint   `json:"languageId"`
+	Value       string `json:"value"`
+	MutationID  uint   `json:"mutationId"`
+	Mutation    Mutation
+	LanguageId  uint `json:"languageId"`
 	UpdatedById uint
-	UpdatedBy User `gorm:"foreignKey:UpdatedById"`
+	UpdatedBy   User `gorm:"foreignKey:UpdatedById"`
 }
 
 func (project *Project) ToSimpleProject() SimpleProject {
@@ -101,34 +101,33 @@ type SimpleUser struct {
 
 type User struct {
 	gorm.Model
-	Name     string `json:"name"`
-	Username string `json:"username" gorm:"uniqueIndex"`
-	Password string
-	SpaceMembers   []SpaceMember
+	Name         string `json:"name"`
+	Username     string `json:"username" gorm:"uniqueIndex"`
+	Password     string
+	SpaceMembers []SpaceMember
 }
 
-
 type SpaceMember struct {
-	UserID  uint `gorm:"primaryKey"`
-	SpaceID uint `gorm:"primaryKey"`
+	UserID    uint `gorm:"primaryKey"`
+	SpaceID   uint `gorm:"primaryKey"`
 	CreatedAt time.Time
-	Role string `gorm:"default:viewer"`
-	User User
-	Space Space
+	Role      string `gorm:"default:viewer"`
+	User      User
+	Space     Space
 }
 
 const (
 	Viewer = "viewer"
 	Editor = "editor"
-	Admin = "admin"
-	Owner = "owner"
+	Admin  = "admin"
+	Owner  = "owner"
 )
 
 type Space struct {
 	gorm.Model
 	Name     string `json:"name"`
 	Projects []Project
-	Members    []SpaceMember
+	Members  []SpaceMember
 }
 
 func (space *Space) ToSimpleSpace() SimpleSpace {
