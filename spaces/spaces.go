@@ -1,12 +1,16 @@
 package spaces
 
 import (
+	"errors"
+	"fmt"
 	"languageboostergo/db"
 	"languageboostergo/types"
 	"languageboostergo/utils"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 
@@ -14,10 +18,6 @@ type Service struct {
 	types.ServiceConfig
 }
 
-
-type CreateSpaceDto struct {
-	Name string `json:"name" binding:"required"`
-}
 
 func (service *Service) CreateSpace(c *gin.Context) {
 	var request CreateSpaceDto
@@ -36,15 +36,18 @@ func (service *Service) CreateSpace(c *gin.Context) {
 		Name: request.Name,
 	}
 
-	newSpace.Users = append(newSpace.Users, user)
-	service.DB.Save(&newSpace)
+	service.DB.Create(&newSpace)
+	newSpaceMember := db.SpaceMember{
+		UserID: user.ID,
+		SpaceID: newSpace.ID,
+		Role: db.Owner,
+		CreatedAt: time.Now(),
+	}
+	service.DB.Create(&newSpaceMember)
 
 	c.JSON(200, newSpace.ToSimpleSpace())
 }
 
-type UpdateSpaceDto struct {
-	Name string `json:"name"`
-}
 
 func (service *Service) GetById(c *gin.Context) {
 	spaceId, err := utils.GetRouteParam(c, "spaceId", "Space id is invalid")
@@ -54,13 +57,16 @@ func (service *Service) GetById(c *gin.Context) {
 	userId := c.MustGet("userId").(uint)
 
 	var foundSpace db.Space
-	if _, err := utils.HandleGormError(c, service.DB.Preload("Users").Preload("Projects").First(&foundSpace, spaceId), "Space not found"); err != nil {
+	if _, err := utils.HandleGormError(c, service.DB.
+		Joins("Members").
+		Joins("Projects").
+		First(&foundSpace, spaceId), "Space not found"); err != nil {
 		return
 	}
 
 	userIsInSpace := false
-	for _, user := range foundSpace.Users {
-		if user.ID == userId {
+	for _, member := range foundSpace.Members {
+		if member.UserID == userId {
 			userIsInSpace = true
 			break
 		}
@@ -87,14 +93,14 @@ func (service *Service) UpdateSpace(c *gin.Context) {
 	}
 
 	var foundSpace db.Space
-	if _, err := utils.HandleGormError(c, service.DB.Preload("Users").First(&foundSpace, spaceId), "Space not found"); err != nil {
+	if _, err := utils.HandleGormError(c, service.DB.Joins("Members").First(&foundSpace, spaceId), "Space not found"); err != nil {
 		return
 	}
 
 	userId := c.MustGet("userId").(uint)
 	userInSpace := false
-	for _, user := range foundSpace.Users {
-		if user.ID == userId {
+	for _, member := range foundSpace.Members {
+		if member.UserID == userId {
 			userInSpace = true
 			break
 		}
@@ -142,70 +148,93 @@ func (service *Service) LeaveSpace(c *gin.Context) {
 func (service *Service) ListUserSpaces(c *gin.Context) {
 	userId := c.MustGet("userId").(uint)
 
-	var foundUser db.User
-	if _, err := utils.HandleGormError(c, service.DB.Preload("Spaces").First(&foundUser, userId), "User not found"); err != nil {
+	var spaceMembers []db.SpaceMember
+	if err := service.DB.Joins("Space").Where("user_id = ?", userId).Find(&spaceMembers).Error; err != nil {
+		fmt.Println(err.Error())
 		return
 	}
 
-	simpleSpaces := make([]db.SimpleSpace, len(foundUser.Spaces))
-	for i, v := range foundUser.Spaces {
-		simpleSpaces[i] = v.ToSimpleSpace()
+	simpleSpaces := make([]db.SimpleSpace, len(spaceMembers))
+	for i, member := range spaceMembers {
+		simpleSpaces[i] = member.Space.ToSimpleSpace()
 	}
 
-	c.JSON(200, simpleSpaces)
+	c.JSON(http.StatusOK, simpleSpaces)
+}
+
+
+func CheckRole(role string) error {
+	if role != db.Viewer && role != db.Editor && role != db.Admin && role != db.Owner {
+		return errors.New("Role is invalid")
+	}
+
+	return nil
 }
 
 func (service *Service) AddUserToSpace(c *gin.Context) {
-	spaceId, err := utils.GetRouteParam(c, "spaceId", "Space id is invalid")
-	if err != nil {
+	var request AddUserToSpaceDto
+	if err := c.BindJSON(&request); err != nil {
 		return
 	}
 
-	userUsername := c.Param("username")
-
-	var foundSpace db.Space
-	if _, err := utils.HandleGormError(c, service.DB.Preload("Users").First(&foundSpace, spaceId), "Space not found"); err != nil {
-		return
-	}
-
-	// Now we have to check whether user is in this space
+	spaceId := request.SpaceID
 	userId := c.MustGet("userId").(uint)
-	foundUser := false
-	userIsInSpace := false
-	for _, user := range foundSpace.Users {
-		if user.ID == userId {
-			foundUser = true
-		}
-		if user.Username == userUsername {
-			userIsInSpace = true
-		}
+
+
+	// First check if the current user is in this space and has appropriate roles
+	var foundSpaceMember db.SpaceMember
+	err := service.DB.Where("user_id = ?", userId).Where("space_id = ?", spaceId).First(&foundSpaceMember).Error
+	if errors.Is(err, gorm.ErrRecordNotFound){
+		c.JSON(http.StatusForbidden, gin.H{"message": "You are not part of this space"})
+		return
+	} else if err != nil {
+		fmt.Println(err.Error())
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Internal server error"})
+		return
+	} else if foundSpaceMember.Role != db.Admin && foundSpaceMember.Role != db.Owner {
+		c.JSON(http.StatusForbidden, gin.H{"message": "Only admins and owner can invite someone else to the space"})
+		return
 	}
 
-	if !foundUser {
-		c.JSON(http.StatusForbidden, gin.H{"message": "Cannot access this space"})
+	// Target user username
+	targetUserUsername := request.Username
+	var foundUser db.User
+	if _, err := utils.HandleGormError(c, service.DB.Joins("SpaceMembers").Where("username = ?", targetUserUsername).First(&foundUser), "User not found"); err != nil {
 		return
+	}
+
+	// Check if target user in this space already
+	userIsInSpace := false
+	for _, member := range foundUser.SpaceMembers {
+		if member.SpaceID == spaceId {
+			userIsInSpace = true
+			break
+		}
 	}
 
 	if userIsInSpace {
-		c.JSON(http.StatusNotFound,gin.H{"message":  "User not found"})
+		c.JSON(http.StatusConflict, gin.H{"message": "User is already in this space"})
 		return
 	}
 
-	var newUser db.User
-	userErr := service.DB.Where("username = ?", userUsername).First(&newUser).Error
-	if userErr != nil {
-		c.JSON(http.StatusNotFound, "Target user not found")
+	// Create new space member
+	if err = CheckRole(request.Role); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 
-	if newUser.ID == userId {
-		c.JSON(http.StatusConflict, "You are the target user")
+	if request.Role == db.Owner {
+		c.JSON(http.StatusConflict, gin.H{"message": "This space already has an owner, you can transfer the ownership to a new person"})
 		return
 	}
 
-	foundSpace.Users = append(foundSpace.Users, newUser)
+	// Check role
+	newSpaceMember := db.SpaceMember {
+		UserID: foundUser.ID,
+		SpaceID: foundSpaceMember.SpaceID,
+		CreatedAt: time.Now(),
+		Role: request.Role,
+	}
 
-	service.DB.Save(&foundSpace)
-
-	c.JSON(200, foundSpace.ToSimpleSpace())
+	service.DB.Create(&newSpaceMember)
 }

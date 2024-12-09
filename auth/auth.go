@@ -11,19 +11,12 @@ import (
 var conn = db.GetDb()
 
 func IsUserInProject(userId, projectId uint) bool {
-	var foundUsers []db.User
-	err := conn.Joins("JOIN user_spaces ON user_spaces.user_id = users.id").
-		Joins("JOIN spaces ON spaces.id = user_spaces.space_id").
-		Joins("JOIN projects ON projects.space_id = spaces.id").
-		Where("users.id = ?", userId).
-		Where("projects.id = ?", projectId).
-		Find(&foundUsers).Error
-
-	if err != nil {
+	var foundSpaceMember db.SpaceMember
+	if err := conn.Where("user_id = ?", userId).Where("space_id = ?", conn.Model(&db.Space{}).Select("space_id").Where("id = ?", projectId)).First(&foundSpaceMember).Error; err != nil {
 		return false
 	}
 
-	return len(foundUsers) > 0
+	return true
 }
 
 

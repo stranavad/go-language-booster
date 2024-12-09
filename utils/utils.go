@@ -3,6 +3,7 @@ package utils
 import (
 	"errors"
 	"languageboostergo/auth"
+	"languageboostergo/db"
 	"log"
 	"net/http"
 	"strconv"
@@ -12,7 +13,7 @@ import (
 )
 
 func GetRouteParam(c *gin.Context, key, message string) (uint, error) {
-	param, err := strconv.ParseUint(c.Param("versionId"), 10, 32)
+	param, err := strconv.ParseUint(c.Param("branchId"), 10, 32)
 
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": message})
@@ -53,4 +54,26 @@ func AuthMiddleware() gin.HandlerFunc {
 		c.Set("userId", userId)
 		c.Next()
 	}
+}
+
+
+var roleHierarchy = map[string]int{
+    db.Owner:  4,
+    db.Admin:  3,
+    db.Editor: 2,
+    db.Viewer: 1,
+}
+
+func HasRequiredRole(userRole, requiredRole string) bool {
+    userRoleLevel, exists := roleHierarchy[userRole]
+    if !exists {
+        return false
+    }
+
+    requiredRoleLevel, exists := roleHierarchy[requiredRole]
+    if !exists {
+        return false
+    }
+
+    return userRoleLevel >= requiredRoleLevel
 }

@@ -11,10 +11,6 @@ import (
 )
 
 
-type CreateProjectDto struct {
-	Name    string `json:"name" binding:"required"`
-	SpaceId uint   `json:"spaceId"`
-}
 
 type Service struct {
 	types.ServiceConfig
@@ -33,16 +29,15 @@ func (service *Service) CreateProject(c *gin.Context) {
 	}
 
 	userId := c.MustGet("userId").(uint)
-	userInSpace := false
-	for _, user := range foundSpace.Users {
-		if user.ID == userId {
-			userInSpace = true
-			break
-		}
+
+	var foundSpaceMember db.SpaceMember
+	if err := service.DB.Where("user_id = ?", userId).Where("space_id = ?", request.SpaceId).First(&foundSpaceMember).Error; err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"message": "You cannot access this space"})
+		return
 	}
 
-	if !userInSpace {
-		c.JSON(http.StatusForbidden, "Cannot access this space")
+	if foundSpaceMember.Role != db.Owner && foundSpaceMember.Role != db.Admin {
+		c.JSON(http.StatusForbidden, gin.H{"message": "You don't the required permissions for creating project inside this space"})
 		return
 	}
 
@@ -83,7 +78,7 @@ func (service *Service) UpdateProject(c *gin.Context) {
 		return
 	}
 
-	var request CreateProjectDto
+	var request UpdateProjectDto
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -114,22 +109,14 @@ func (service *Service) ListProjects(c *gin.Context) {
 	}
 
 
+	userId := c.MustGet("userId").(uint)
+
 	var foundSpace db.Space
-	if _, err := utils.HandleGormError(c, service.DB.Preload("Users").Preload("Projects").First(&foundSpace, spaceId), "Space not found"); err != nil {
+	if _, err := utils.HandleGormError(c, service.DB.Preload("Members", "user_id = ?", userId).Preload("Projects").First(&foundSpace, spaceId), "Space not found"); err != nil {
 		return
 	}
 
-	// Check user relevance
-	userId := c.MustGet("userId").(uint)
-	userInSpace := false
-	for _, user := range foundSpace.Users {
-		if user.ID == userId {
-			userInSpace = true
-			break
-		}
-	}
-
-	if !userInSpace {
+	if len(foundSpace.Members) == 0 {
 		c.JSON(http.StatusForbidden, "Cannot access this space")
 		return
 	}

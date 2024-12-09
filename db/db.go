@@ -3,6 +3,7 @@ package db
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
@@ -13,27 +14,56 @@ type Project struct {
 	gorm.Model
 	Name      string `json:"name" binding:"required"`
 	SpaceID   uint   `json:"spaceId"`
+	Space Space
 	Languages []Language
 	Mutations []Mutation
-	Versions  []Version
+	Branches  []Branch
+	Settings ProjectSettings
+	Requests []Request
 }
 
-type Version struct {
+func (p *Project) BeforeCreate(tx *gorm.DB) (err error) {
+	// Create default project settings
+	p.Settings = ProjectSettings{}
+
+  return
+}
+
+type ProjectSettings struct {
+	gorm.Model
+	ProjectID uint
+	// Fields
+	EditCurrentBranchRole *string
+}
+
+type Branch struct {
 	gorm.Model
 	Name      string `json:"name" binding:"required"`
 	ProjectID uint
+	UserID uint
+	User User
 	Project   Project
-	Locked    bool
 	Mutations []Mutation `gorm:"constraints:OnDelete:CASCADE;"`
+}
+
+
+type Request struct {
+	gorm.Model
+	Name string
+	ProjectID uint
+	Project Project
+	BranchID uint
+	Branch Branch
+	UserID uint
+	User User
 }
 
 type Mutation struct {
 	gorm.Model
 	Key            string          `json:"key"`
 	ProjectID      uint            `json:"projectId"`
-	VersionID      *uint           `json:"versionId"`
-	Version        *Version        `json:"version"`
-	Status         string          `json:"status"`
+	BranchID      *uint           `json:"branchId"`
+	Branch        *Branch        `json:"branch"`
 	MutationValues []MutationValue `json:"values" gorm:"constraint:OnDelete:CASCADE;"`
 }
 
@@ -43,7 +73,8 @@ type MutationValue struct {
 	MutationID uint   `json:"mutationId"`
 	Mutation   Mutation
 	LanguageId uint   `json:"languageId"`
-	Status     string `json:"status"`
+	UpdatedById uint
+	UpdatedBy User `gorm:"foreignKey:UpdatedById"`
 }
 
 func (project *Project) ToSimpleProject() SimpleProject {
@@ -73,20 +104,37 @@ type User struct {
 	Name     string `json:"name"`
 	Username string `json:"username" gorm:"uniqueIndex"`
 	Password string
-	Spaces   []Space `gorm:"many2many:user_spaces;"`
+	SpaceMembers   []SpaceMember
 }
+
+
+type SpaceMember struct {
+	UserID  uint `gorm:"primaryKey"`
+	SpaceID uint `gorm:"primaryKey"`
+	CreatedAt time.Time
+	Role string `gorm:"default:viewer"`
+	User User
+	Space Space
+}
+
+const (
+	Viewer = "viewer"
+	Editor = "editor"
+	Admin = "admin"
+	Owner = "owner"
+)
 
 type Space struct {
 	gorm.Model
 	Name     string `json:"name"`
 	Projects []Project
-	Users    []User `gorm:"many2many:user_spaces;"`
+	Members    []SpaceMember
 }
 
 func (space *Space) ToSimpleSpace() SimpleSpace {
-	users := make([]SimpleUser, len(space.Users))
-	for i, v := range space.Users {
-		users[i] = v.ToSimpleUser()
+	users := make([]SimpleUser, len(space.Members))
+	for i, v := range space.Members {
+		users[i] = v.User.ToSimpleUser()
 	}
 
 	projects := make([]SimpleProject, len(space.Projects))
@@ -144,7 +192,6 @@ func (mutation *Mutation) ToSimpleMutation() SimpleMutation {
 	return SimpleMutation{
 		ID:             mutation.ID,
 		Key:            mutation.Key,
-		Status:         mutation.Status,
 		MutationValues: mutationValues,
 	}
 }
@@ -153,7 +200,6 @@ func (mutationValue *MutationValue) ToSimpleMutationValue() SimpleMutationValue 
 	return SimpleMutationValue{
 		ID:         mutationValue.ID,
 		Value:      mutationValue.Value,
-		Status:     mutationValue.Status,
 		LanguageID: mutationValue.LanguageId,
 	}
 }
@@ -161,29 +207,13 @@ func (mutationValue *MutationValue) ToSimpleMutationValue() SimpleMutationValue 
 type SimpleMutation struct {
 	ID             uint                  `json:"id"`
 	Key            string                `json:"key"`
-	Status         string                `json:"status"`
 	MutationValues []SimpleMutationValue `json:"values"`
 }
 
 type SimpleMutationValue struct {
 	ID         uint   `json:"id"`
 	Value      string `json:"value"`
-	Status     string `json:"status"`
 	LanguageID uint   `json:"languageId"`
-}
-
-func (mutation *Mutation) BeforeCreate(*gorm.DB) (err error) {
-	if mutation.Status == "" {
-		mutation.Status = "NEEDS_TRANSLATION"
-	}
-	return
-}
-
-func (mutationValue *MutationValue) BeforeCreate(*gorm.DB) (err error) {
-	if mutationValue.Status == "" {
-		mutationValue.Status = "NEEDS_TRANSLATION"
-	}
-	return
 }
 
 var db *gorm.DB
@@ -205,7 +235,7 @@ func init() {
 		panic("Failed to connect database")
 	}
 
-	err = db.AutoMigrate(&Space{}, &Project{}, &Language{}, &Version{}, &Mutation{}, &MutationValue{}, &User{})
+	err = db.AutoMigrate(&Space{}, &Project{}, &Language{}, &Branch{}, &Mutation{}, &MutationValue{}, &User{}, &SpaceMember{}, &ProjectSettings{})
 	if err != nil {
 		panic("Failed to migrate database")
 	}
