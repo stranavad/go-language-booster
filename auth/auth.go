@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
+	"gorm.io/gorm"
 	"languageboostergo/db"
 	"os"
 
@@ -12,15 +14,28 @@ var conn = db.GetDb()
 
 func IsUserInProject(userId, projectId uint) bool {
 	var foundSpaceMember db.SpaceMember
-	if err := conn.Where("user_id = ?", userId).Where("space_id = ?", conn.Model(&db.Space{}).Select("space_id").Where("id = ?", projectId)).First(&foundSpaceMember).Error; err != nil {
-		return false
+	if err := conn.
+		Where("user_id = ?", userId).
+		Where("space_id = (?)",
+			conn.
+				Model(&db.Project{}).
+				Select("space_id").
+				Where("id = ?", projectId),
+		).
+		First(&foundSpaceMember).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false
+		} else {
+			println(err.Error())
+			return false
+		}
 	}
 
 	return true
 }
 
-
 var secret = os.Getenv("JWT_SECRET")
+
 func ParseToken(tokenString string) (uint, error) {
 	claims := &jwt.MapClaims{}
 	_, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {

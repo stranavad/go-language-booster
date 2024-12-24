@@ -22,9 +22,9 @@ type Project struct {
 	Requests  []Request
 }
 
-func (p *Project) BeforeCreate(tx *gorm.DB) (err error) {
+func (project *Project) BeforeCreate(tx *gorm.DB) (err error) {
 	// Create default project settings
-	p.Settings = ProjectSettings{}
+	project.Settings = ProjectSettings{}
 
 	return
 }
@@ -57,6 +57,57 @@ type Request struct {
 	User      User
 }
 
+type BranchResponse struct {
+	ID      uint                   `json:"id"`
+	Name    string                 `json:"name"`
+	User    SimpleUser             `json:"user"`
+	Request *RequestSimpleResponse `json:"request"`
+}
+
+func (branch *Branch) ToResponse() BranchResponse {
+	//var requestResponse *RequestSimpleResponse
+	//
+	//if branch.Request != nil {
+	//	res := branch.Request.ToSimpleResponse()
+	//	requestResponse = &res
+	//}
+
+	return BranchResponse{
+		ID:   branch.ID,
+		Name: branch.Name,
+		User: branch.User.ToSimpleUser(),
+		//Request: requestResponse,
+	}
+}
+
+type RequestResponse struct {
+	ID     uint           `json:"id"`
+	Name   string         `json:"name"`
+	User   SimpleUser     `json:"user"`
+	Branch BranchResponse `json:"branch"`
+}
+
+type RequestSimpleResponse struct {
+	ID   uint   `json:"id"`
+	Name string `json:"name"`
+}
+
+func (request *Request) ToSimpleResponse() RequestSimpleResponse {
+	return RequestSimpleResponse{
+		ID:   request.ID,
+		Name: request.Name,
+	}
+}
+
+func (request *Request) ToResponse() RequestResponse {
+	return RequestResponse{
+		ID:     request.ID,
+		Name:   request.Name,
+		User:   request.User.ToSimpleUser(),
+		Branch: request.Branch.ToResponse(),
+	}
+}
+
 type Mutation struct {
 	gorm.Model
 	Key            string `json:"key"`
@@ -72,7 +123,7 @@ type MutationValue struct {
 	Value       string `json:"value"`
 	MutationID  uint   `json:"mutationId"`
 	Mutation    Mutation
-	LanguageId  uint `json:"languageId"`
+	LanguageID  uint `json:"languageId"`
 	UpdatedById uint
 	UpdatedBy   User `gorm:"foreignKey:UpdatedById"`
 }
@@ -87,22 +138,22 @@ func (project *Project) ToSimpleProject() SimpleProject {
 
 func (user *User) ToSimpleUser() SimpleUser {
 	return SimpleUser{
-		ID:       user.ID,
-		Name:     user.Name,
-		Username: user.Username,
+		ID:    user.ID,
+		Name:  user.Name,
+		Email: user.Email,
 	}
 }
 
 type SimpleUser struct {
-	ID       uint   `json:"id"`
-	Name     string `json:"name"`
-	Username string `json:"username"`
+	ID    uint   `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
 }
 
 type User struct {
 	gorm.Model
 	Name         string `json:"name"`
-	Username     string `json:"username" gorm:"uniqueIndex"`
+	Email        string `json:"email" gorm:"uniqueIndex"`
 	Password     string
 	SpaceMembers []SpaceMember
 }
@@ -114,6 +165,18 @@ type SpaceMember struct {
 	Role      string `gorm:"default:viewer"`
 	User      User
 	Space     Space
+}
+
+type SpaceMemberResponse struct {
+	Role string     `json:"role"`
+	User SimpleUser `json:"user"`
+}
+
+func (space *SpaceMember) ToResponse() SpaceMemberResponse {
+	return SpaceMemberResponse{
+		Role: space.Role,
+		User: space.User.ToSimpleUser(),
+	}
 }
 
 const (
@@ -166,6 +229,7 @@ type SimpleLanguage struct {
 	ID        uint   `json:"id"`
 	Name      string `json:"name"`
 	ProjectID uint   `json:"projectId"`
+	Primary   bool   `json:"primary"`
 }
 
 func (language *Language) ToSimpleLanguage() SimpleLanguage {
@@ -173,6 +237,7 @@ func (language *Language) ToSimpleLanguage() SimpleLanguage {
 		ID:        language.ID,
 		Name:      language.Name,
 		ProjectID: language.ProjectID,
+		Primary:   language.Primary,
 	}
 }
 
@@ -180,6 +245,7 @@ type Language struct {
 	gorm.Model
 	Name           string `json:"name"`
 	ProjectID      uint   `json:"projectId"`
+	Primary        bool   `gorm:"default:false"`
 	MutationValues []MutationValue
 }
 
@@ -199,7 +265,7 @@ func (mutationValue *MutationValue) ToSimpleMutationValue() SimpleMutationValue 
 	return SimpleMutationValue{
 		ID:         mutationValue.ID,
 		Value:      mutationValue.Value,
-		LanguageID: mutationValue.LanguageId,
+		LanguageID: mutationValue.LanguageID,
 	}
 }
 
@@ -225,7 +291,8 @@ func init() {
 	connStr := os.Getenv("DATABASE_URL")
 
 	fmt.Println("Connecting to DB")
-	db, err := gorm.Open(postgres.Open(connStr), &gorm.Config{
+	var err error
+	db, err = gorm.Open(postgres.Open(connStr), &gorm.Config{
 		SkipDefaultTransaction: true,
 		PrepareStmt:            true,
 	})
@@ -234,7 +301,7 @@ func init() {
 		panic("Failed to connect database")
 	}
 
-	err = db.AutoMigrate(&Space{}, &Project{}, &Language{}, &Branch{}, &Mutation{}, &MutationValue{}, &User{}, &SpaceMember{}, &ProjectSettings{})
+	err = db.AutoMigrate(&Space{}, &Project{}, &Language{}, &Branch{}, &Mutation{}, &MutationValue{}, &User{}, &SpaceMember{}, &ProjectSettings{}, &Request{})
 	if err != nil {
 		panic("Failed to migrate database")
 	}

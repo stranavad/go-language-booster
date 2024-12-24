@@ -53,7 +53,7 @@ func toExportKey(data []db.Mutation) map[string]interface{} {
 func (service *Service) ByProjectIdAndLanguageId(c *gin.Context) {
 	var request ByProjectAndLanguageDto
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 

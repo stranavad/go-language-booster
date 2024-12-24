@@ -1,11 +1,13 @@
 package main
 
 import (
+	"languageboostergo/branch"
 	"languageboostergo/db"
 	"languageboostergo/export"
 	"languageboostergo/languages"
 	"languageboostergo/mutations"
 	"languageboostergo/projects"
+	"languageboostergo/request"
 	"languageboostergo/spaces"
 	"languageboostergo/types"
 	"languageboostergo/users"
@@ -13,7 +15,6 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
-
 
 func main() {
 	r := gin.Default()
@@ -28,7 +29,7 @@ func main() {
 
 	conn := db.GetDb()
 
-	config := types.ServiceConfig {
+	config := types.ServiceConfig{
 		DB: conn,
 	}
 
@@ -39,6 +40,8 @@ func main() {
 	languages.RegisterRoutes(r, config)
 	mutations.RegisterRoutes(r, config)
 	export.RegisterRoutes(r, config)
+	branch.RegisterRoutes(r, config)
+	request.RegisterRoutes(r, config)
 
 	err := r.Run()
 

@@ -19,13 +19,12 @@ type Service struct {
 
 func (service *Service) CreateMutationValue(c *gin.Context) {
 	var request CreateMutationValueDto
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := c.BindJSON(&request); err != nil {
 		return
 	}
 
 	var foundMutation db.Mutation
-	if _, err := utils.HandleGormError(c, service.DB.Preload("Branch").Where("id = ?", request.MutationId).First(&foundMutation), "Mutation not found"); err != nil {
+	if _, err := utils.HandleGormError(c, service.DB.Preload("Branch").Where("id = ?", request.MutationID).First(&foundMutation), "Mutation not found"); err != nil {
 		return
 	}
 
@@ -36,10 +35,12 @@ func (service *Service) CreateMutationValue(c *gin.Context) {
 		return
 	}
 
+	// TODO: Check in which branch is the current mutation ID and check the user role
+
 	var newMutationValue db.MutationValue
 	newMutationValue.Value = request.Value
-	newMutationValue.LanguageId = request.LanguageId
-	newMutationValue.MutationID = request.MutationId
+	newMutationValue.LanguageID = request.LanguageID
+	newMutationValue.MutationID = request.MutationID
 	service.DB.Create(&newMutationValue)
 	c.JSON(http.StatusOK, newMutationValue.ToSimpleMutationValue())
 }
@@ -51,8 +52,7 @@ func (service *Service) UpdateMutation(c *gin.Context) {
 	}
 
 	var request UpdateMutationDto
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := c.BindJSON(&request); err != nil {
 		return
 	}
 
@@ -78,7 +78,7 @@ func (service *Service) UpdateMutation(c *gin.Context) {
 		for _, value := range foundMutation.MutationValues {
 			mutationValuesToCreate = append(mutationValuesToCreate, db.MutationValue{
 				Value:       value.Value,
-				LanguageId:  value.LanguageId,
+				LanguageID:  value.LanguageID,
 				UpdatedById: userId,
 			})
 		}
@@ -199,14 +199,14 @@ func (service *Service) SearchByProject(c *gin.Context) {
 
 	var request SearchMutationsDto
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 
 	// Build or queries for languages
 	languageConditions := service.DB.Where("1 = 0") // TODO this may not work, claude recommended it for some way
 	for _, lang := range request.Languages {
-		languageConditions.Or("language_id = ? AND value LIKE ?", lang.LanguageId, "%"+lang.Search+"%")
+		languageConditions.Or("language_id = ? AND value LIKE ?", lang.LanguageID, "%"+lang.Search+"%")
 	}
 
 	// Prefilter ID for mutations
@@ -314,7 +314,7 @@ func (service *Service) UpdateMutationValue(c *gin.Context) {
 
 	var request UpdateMutationValueDto
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 
@@ -345,7 +345,7 @@ func (service *Service) UpdateMutationValue(c *gin.Context) {
 
 func (service *Service) CanUpdateBranch(c *gin.Context, projectId uint, branchId *uint, userId uint) (*db.Branch, error) {
 	var foundSpaceMember db.SpaceMember
-	if _, err := utils.HandleGormError(c, service.DB.Where("user_id = ?", userId).Where("space_id = ?", service.DB.Model(&db.Project{}).Select("space_id").Where("id = ?", projectId)).First(&foundSpaceMember), "Space member not found"); err != nil {
+	if _, err := utils.HandleGormError(c, service.DB.Where("user_id = ?", userId).Where("space_id = (?)", service.DB.Model(&db.Project{}).Select("space_id").Where("id = ?", projectId)).First(&foundSpaceMember), "Space member not found"); err != nil {
 		return nil, err
 	}
 
@@ -369,9 +369,15 @@ func (service *Service) CanUpdateBranch(c *gin.Context, projectId uint, branchId
 	if foundBranch == nil {
 		var foundProjectSettings db.ProjectSettings
 		if err := service.DB.Where("project_id = ?", projectId).First(&foundProjectSettings).Error; err != nil {
-			println(err.Error())
-			c.JSON(http.StatusInternalServerError, gin.H{"message": "Internal server error when getting project settings"})
-			return nil, err
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				println(err.Error())
+				c.JSON(http.StatusInternalServerError, gin.H{"message": "Internal server error when getting project settings"})
+				return nil, err
+			}
+		}
+
+		if foundProjectSettings.ID == 0 {
+			return nil, nil
 		}
 
 		// If the project has disabled current branch edit
@@ -388,24 +394,23 @@ func (service *Service) CanUpdateBranch(c *gin.Context, projectId uint, branchId
 
 func (service *Service) CreateMutation(c *gin.Context) {
 	var data CreateMutationDto
-	if err := c.ShouldBindJSON(&data); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := c.BindJSON(&data); err != nil {
 		return
 	}
 
 	userId := c.MustGet("userId").(uint)
-	if !auth.IsUserInProject(userId, data.ProjectId) {
+	if !auth.IsUserInProject(userId, data.ProjectID) {
 		c.JSON(http.StatusForbidden, gin.H{"message": "You are not in this project"})
 		return
 	}
 
-	foundBranch, err := service.CanUpdateBranch(c, data.ProjectId, data.BranchId, userId)
+	foundBranch, err := service.CanUpdateBranch(c, data.ProjectID, data.BranchId, userId)
 	if err != nil {
 		return
 	}
 
 	var matchedMutationsCount int64
-	qb := service.DB.Where("project_id = ?", data.ProjectId).Where("key = ?", data.Key)
+	qb := service.DB.Where("project_id = ?", data.ProjectID).Where("key = ?", data.Key)
 
 	if foundBranch != nil {
 		qb.Where("branch_id = ?", foundBranch.ID)
@@ -422,7 +427,7 @@ func (service *Service) CreateMutation(c *gin.Context) {
 	// Mutation does not exist yet
 	// Get languages by project
 	var languages []db.Language
-	service.DB.Where("project_id = ?", data.ProjectId).Find(&languages)
+	service.DB.Where("project_id = ?", data.ProjectID).Find(&languages)
 
 	// Map languages to sent values
 	mutationValues := make([]db.MutationValue, len(languages))
@@ -430,7 +435,7 @@ func (service *Service) CreateMutation(c *gin.Context) {
 		// Find language in values
 		var foundValue *CreateMutationDtoValue
 		for _, value := range data.Values {
-			if value.LanguageId == language.ID {
+			if value.LanguageID == language.ID {
 				foundValue = &value
 				break
 			}
@@ -438,12 +443,12 @@ func (service *Service) CreateMutation(c *gin.Context) {
 
 		if foundValue != nil {
 			mutationValues[i] = db.MutationValue{
-				LanguageId: language.ID,
+				LanguageID: language.ID,
 				Value:      foundValue.Value,
 			}
 		} else {
 			mutationValues[i] = db.MutationValue{
-				LanguageId: language.ID,
+				LanguageID: language.ID,
 				Value:      "",
 			}
 		}
@@ -455,13 +460,14 @@ func (service *Service) CreateMutation(c *gin.Context) {
 	}
 
 	mutation := db.Mutation{
-		ProjectID:      data.ProjectId,
+		ProjectID:      data.ProjectID,
 		Key:            data.Key,
 		MutationValues: mutationValues, // create with association mode
 		BranchID:       foundBranchId,
 	}
 
 	service.DB.Create(&mutation)
+	service.DB.Joins("MutationValues").First(&mutation)
 
 	c.JSON(http.StatusOK, mutation.ToSimpleMutation())
 }

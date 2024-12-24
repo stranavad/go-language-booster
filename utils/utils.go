@@ -13,7 +13,7 @@ import (
 )
 
 func GetRouteParam(c *gin.Context, key, message string) (uint, error) {
-	param, err := strconv.ParseUint(c.Param("branchId"), 10, 32)
+	param, err := strconv.ParseUint(c.Param(key), 10, 32)
 
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": message})
@@ -23,21 +23,20 @@ func GetRouteParam(c *gin.Context, key, message string) (uint, error) {
 	return uint(param), nil
 }
 
-
 func HandleGormError(c *gin.Context, result *gorm.DB, notFoundMessage string) (bool, error) {
 	if result.Error == nil {
 		return true, nil
 	}
 
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		c.JSON(http.StatusNotFound, gin.H{"error": notFoundMessage})
+		c.JSON(http.StatusNotFound, gin.H{"message": notFoundMessage})
 
 		return false, result.Error
 	}
 
 	log.Printf("Database error: %v", result.Error)
 
-	c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+	c.JSON(http.StatusInternalServerError, gin.H{"message": "Database error"})
 	return false, result.Error
 }
 
@@ -56,24 +55,23 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-
 var roleHierarchy = map[string]int{
-    db.Owner:  4,
-    db.Admin:  3,
-    db.Editor: 2,
-    db.Viewer: 1,
+	db.Owner:  4,
+	db.Admin:  3,
+	db.Editor: 2,
+	db.Viewer: 1,
 }
 
 func HasRequiredRole(userRole, requiredRole string) bool {
-    userRoleLevel, exists := roleHierarchy[userRole]
-    if !exists {
-        return false
-    }
+	userRoleLevel, exists := roleHierarchy[userRole]
+	if !exists {
+		return false
+	}
 
-    requiredRoleLevel, exists := roleHierarchy[requiredRole]
-    if !exists {
-        return false
-    }
+	requiredRoleLevel, exists := roleHierarchy[requiredRole]
+	if !exists {
+		return false
+	}
 
-    return userRoleLevel >= requiredRoleLevel
+	return userRoleLevel >= requiredRoleLevel
 }

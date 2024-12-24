@@ -1,16 +1,15 @@
 package mutations
 
 type CreateMutationDto struct {
-	ProjectId uint                     `json:"projectId" binding:"required"`
+	ProjectID uint                     `json:"projectId" binding:"required"`
 	Key       string                   `json:"key" binding:"required"`
 	Values    []CreateMutationDtoValue `json:"values" binding:"required"`
 	BranchId  *uint                    `json:"branchId"`
 }
 
 type CreateMutationDtoValue struct {
-	LanguageId uint   `json:"languageId" binding:"required"`
+	LanguageID uint   `json:"languageId" binding:"required"`
 	Value      string `json:"value" binding:"required"`
-	BranchID   *uint  `json:"branchId"`
 }
 
 type UpdateMutationDto struct {
@@ -25,13 +24,13 @@ type UpdateMutationValueDto struct {
 
 type CreateMutationValueDto struct {
 	Value      string `json:"value" binding:"required"`
-	MutationId uint   `json:"mutationId" binding:"required"`
-	LanguageId uint   `json:"languageId" binding:"required"`
+	MutationID uint   `json:"mutationId" binding:"required"`
+	LanguageID uint   `json:"languageId" binding:"required"`
 	BranchID   *uint  `json:"branchId"`
 }
 
 type SearchMutationLanguageDto struct {
-	LanguageId uint   `json:"languageId" binding:"required"`
+	LanguageID uint   `json:"languageId" binding:"required"`
 	Search     string `json:"search" binding:"required"`
 	BranchID   *uint  `json:"branchId"`
 }

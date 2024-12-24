@@ -19,7 +19,6 @@ type Service struct {
 	types.ServiceConfig
 }
 
-
 func hashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 10)
 	return string(bytes), err
@@ -46,22 +45,25 @@ func CreateToken(userId uint) (string, error) {
 
 type CreateUserDto struct {
 	Name     string `json:"name" binding:"required"`
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password"`
+	Email    string `json:"email" binding:"required"`
+	Password string `json:"password" binding:"required"`
 }
 
 func (service *Service) CreateUser(c *gin.Context) {
 	var request CreateUserDto
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := c.BindJSON(&request); err != nil {
 		return
 	}
 
-	// First we have to check whether user with username already exists
-	var foundUsers []db.User
-	service.DB.Where("username = ?", request.Username).Find(&foundUsers).Limit(1)
-	if len(foundUsers) > 0 {
-		c.JSON(http.StatusConflict, "This user already exists")
+	// First we have to check whether user with email already exists
+	var foundUserCount int64
+	if err := service.DB.Model(&db.User{}).Where("email = ?", request.Email).Count(&foundUserCount).Error; err != nil {
+		println("Error counting users")
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed creating user"})
+	}
+
+	if foundUserCount > 0 {
+		c.JSON(http.StatusConflict, gin.H{"message": "This user already exists"})
 		return
 	}
 
@@ -74,7 +76,7 @@ func (service *Service) CreateUser(c *gin.Context) {
 
 	user := db.User{
 		Name:     request.Name,
-		Username: request.Username,
+		Email:    request.Email,
 		Password: hashedPassword,
 	}
 
@@ -91,8 +93,23 @@ func (service *Service) CreateUser(c *gin.Context) {
 }
 
 type LoginUserDto struct {
-	Username string `json:"username" binding:"required"`
+	Email    string `json:"email" binding:"required"`
 	Password string `json:"password" binding:"required"`
+}
+
+func (service *Service) GetUserSpaces(c *gin.Context) {
+	userId := c.MustGet("userId").(uint)
+	var foundSpaceMembers []db.SpaceMember
+	if err := service.DB.Where("user_id = ?", userId).Joins("Space").Find(&foundSpaceMembers).Error; err != nil {
+		return
+	}
+
+	var spaces []db.SimpleSpace
+	for _, member := range foundSpaceMembers {
+		spaces = append(spaces, member.Space.ToSimpleSpace())
+	}
+
+	c.JSON(http.StatusOK, spaces)
 }
 
 func (service *Service) GetCurrent(c *gin.Context) {
@@ -109,12 +126,12 @@ func (service *Service) GetCurrent(c *gin.Context) {
 func (service *Service) LoginUser(c *gin.Context) {
 	var request LoginUserDto
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 
 	var foundUser db.User
-	if _, err := utils.HandleGormError(c, service.DB.Where("username = ?", request.Username).First(&foundUser), "User not found"); err != nil {
+	if _, err := utils.HandleGormError(c, service.DB.Where("email = ?", request.Email).First(&foundUser), "User not found"); err != nil {
 		return
 	}
 
